@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>Patrick Stanke Theater Game</title>
+<style>
+  html, body {
+    margin:0; padding:0; background:#111;
+    overflow:hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    user-select:none;
+    -webkit-user-select:none;
+    touch-action:none;
+  }
+  #game {
+    display:block;
+    margin:0 auto;
+    background: linear-gradient(to top, #330000, #440000);
+    border: 4px solid #990000;
+    max-width: 100vw;
+    max-height: 100vh;
+  }
+  #hud {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    color: #ffdddd;
+    font-weight: 700;
+    font-size: 20px;
+    text-shadow: 0 0 6px #bb4444;
+    z-index: 10;
+  }
+  #controls {
+    position: fixed;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 320px;
+    display: flex;
+    justify-content: space-around;
+    z-index: 10;
+  }
+  .btn {
+    width: 70px; height: 70px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 18px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 34px;
+    color: white;
+    user-select: none;
+    touch-action: manipulation;
+    box-shadow: 0 0 12px #990000;
+  }
+  .btn:active {
+    background: rgba(255,255,255,0.4);
+  }
+  #message {
+    position: fixed;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #ffbbbb;
+    font-size: 40px;
+    text-shadow: 0 0 12px #bb4444;
+    z-index: 20;
+    display:none;
+    user-select:none;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">Level: 1 | Punkte: 0 | Leben: 3</div>
+<div id="controls">
+  <div class="btn" id="leftBtn">&#8592;</div>
+  <div class="btn" id="jumpBtn">&#8593;</div>
+  <div class="btn" id="rightBtn">&#8594;</div>
+</div>
+<div id="message"></div>
+
+<canvas id="game" width="480" height="320"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const WIDTH = canvas.width;
+  const HEIGHT = canvas.height;
+  const hud = document.getElementById('hud');
+  const message = document.getElementById('message');
+
+  // Steuerung Buttons
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+  const jumpBtn = document.getElementById('jumpBtn');
+
+  // --- Hilfsfunktionen ---
+
+  function rectsCollide(a, b) {
+    return a.x < b.x + b.width &&
+           a.x + a.width > b.x &&
+           a.y < b.y + b.height &&
+           a.y + a.height > b.y;
+  }
+
+  // --- Spielfigur ---
+  class Player {
+    constructor() {
+      this.width = 32;
+      this.height = 48;
+      this.reset();
+      this.speed = 3.2;
+      this.jumpPower = 10;
+      this.gravity = 0.5;
+      this.facing = 1; // 1 rechts, -1 links
+      this.frame = 0;
+      this.frameTimer = 0;
+      this.lives = 3;
+      this.score = 0;
+    }
+    reset() {
+      this.x = 40;
+      this.y = HEIGHT - 70;
+      this.vx = 0;
+      this.vy = 0;
+      this.onGround = false;
+      this.facing = 1;
+    }
+    update(platforms) {
+      this.x += this.vx;
+
+      if(this.x < 0) this.x = 0;
+      if(this.x + this.width > WIDTH) this.x = WIDTH - this.width;
+
+      this.vy += this.gravity;
+      this.y += this.vy;
+
+      this.onGround = false;
+      for(const p of platforms){
+        if (
+          this.x < p.x + p.width &&
+          this.x + this.width > p.x &&
+          this.y + this.height > p.y &&
+          this.y + this.height < p.y + p.height &&
+          this.vy >= 0
+        ) {
+          this.y = p.y - this.height;
+          this.vy = 0;
+          this.onGround = true;
+        }
+      }
+
+      if(this.y + this.height > HEIGHT){
+        this.lives--;
+        this.respawn();
+      }
+
+      if(this.vx !== 0 && this.onGround){
+        this.frameTimer++;
+        if(this.frameTimer > 6){
+          this.frame = (this.frame +1) % 4;
+          this.frameTimer = 0;
+        }
+      } else {
+        this.frame = 0;
+        this.frameTimer = 0;
+      }
+    }
+    respawn(){
+      this.x = 40;
+      this.y = HEIGHT - 70;
+      this.vx = 0;
+      this.vy = 0;
+      this.onGround = false;
+      this.facing = 1;
+    }
+    draw(ctx){
+      ctx.save();
+      ctx.translate(this.x + this.width/2, this.y + this.height/2);
+      ctx.scale(this.facing,1);
+
+      // Kopf (Haut)
+      ctx.fillStyle = '#e6c07b';
+      ctx.beginPath();
+      ctx.ellipse(0, -15, 12, 16, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // Haare
+      ctx.fillStyle = '#4a2c1a';
+      ctx.beginPath();
+      ctx.ellipse(0, -27, 14, 8, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // Frisur fransig vorne
+      ctx.beginPath();
+      ctx.moveTo(-10,-23);
+      ctx.lineTo(-7,-16);
+      ctx.lineTo(-4,-23);
+      ctx.lineTo(-1,-16);
+      ctx.lineTo(2,-23);
+      ctx.lineTo(5,-16);
+      ctx.lineTo(8,-23);
+      ctx.closePath();
+      ctx.fill();
+
+      // Augen
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(-5,-18,2,0,Math.PI*2);
+      ctx.arc(5,-18,2,0,Math.PI*2);
+      ctx.fill();
+
+      // Körper schwarzer Anzug
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-12,0,24,38);
+
+      // weißes Hemd
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(-10,10,20,18);
+
+      // Hose & Schuhe
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-12,38,24,18);
+      ctx.fillStyle = '#333';
+      ctx.fillRect(-12,56,24,8);
+
+      ctx.restore();
+    }
+  }
+
+  // --- Plattform ---
+  class Platform {
+    constructor(x,y,width,height){
+      this.x = x;
+      this.y = y;
+      this.width = width;
+      this.height = height;
+    }
+    draw(ctx){
+      // Bühne Holzoptik
+      const baseColor = '#6b4226';
+      const lineColor = '#a97449';
+      ctx.fillStyle = baseColor;
+      ctx.fillRect(this.x,this.y,this.width,this.height);
+
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 2;
+      for(let i = 0; i < this.width; i += 12){
+        ctx.beginPath();
+        ctx.moveTo(this.x + i, this.y);
+        ctx.lineTo(this.x + i, this.y + this.height);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // --- Notenblatt Sammelobjekt ---
+  class Note {
+    constructor(x,y){
+      this.x = x;
+      this.y = y;
+      this.radius = 12;
+      this.collected = false;
+    }
+    draw(ctx){
+      if(this.collected) return;
+
+      ctx.save();
+      ctx.translate(this.x,this.y);
+
+      // Blatt
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.ellipse(0,0,12,18,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Notenschlüssel stilisiert
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(0,-10);
+      ctx.bezierCurveTo(10,-10,10,10,0,10);
+      ctx.bezierCurveTo(-8,10,-8,-5,0,-5);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+  }
+
+  // --- Gegner ---
+  class Enemy {
+    constructor(x,y,range){
+      this.x = x;
+      this.y = y;
+      this.width = 28;
+      this.height = 38;
+      this.speed = 1.3;
+      this.dir = 1;
+      this.range = range;
+      this.originX = x;
+      this.alive = true;
+    }
+    update(){
+      if(!this.alive) return;
+      this.x += this.speed * this.dir;
+      if(this.x > this.originX + this.range) this.dir = -1;
+      if(this.x < this.originX) this.dir = 1;
+    }
+    draw(ctx){
+      if(!this.alive) return;
+      // Einfacher roter Bühnengeist / Monster
+      ctx.fillStyle = '#bb2222';
+      ctx.fillRect(this.x,this.y,this.width,this.height);
+
+      // Augen
+      ctx.fillStyle = 'yellow';
+      ctx.beginPath();
+      ctx.arc(this.x + 7, this.y + 12, 6, 0, Math.PI*2);
+      ctx.arc(this.x + 21, this.y + 12, 6, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.fillStyle = 'black';
+      ctx.beginPath();
+      ctx.arc(this.x + 7, this.y + 12, 3, 0, Math.PI*2);
+      ctx.arc(this.x + 21, this.y + 12, 3, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // --- Levels Daten ---
+  // Plattformen: x,y,w,h
+  // Noten: x,y
+  // Gegner: x,y,patrouillenreichweite
+
+  const levels = [
+    {
+      platforms:[
+        new Platform(0, HEIGHT-20, WIDTH, 20),
+        new Platform(80, HEIGHT-70, 120, 15),
+        new Platform(230, HEIGHT-110, 100, 15),
+        new Platform(360, HEIGHT-160, 100, 15),
+      ],
+      notes:[
+        new Note(110, HEIGHT-100),
+        new Note(260, HEIGHT-140),
+        new Note(400, HEIGHT-190)
+      ],
+      enemies:[
+        new Enemy(180, HEIGHT-58, 40)
+      ]
+    },
+    {
+      platforms:[
+        new Platform(0, HEIGHT-20, WIDTH, 20),
+        new Platform(50, HEIGHT-90, 100, 15),
+        new Platform(180, HEIGHT-130, 140, 15),
+        new Platform(350, HEIGHT-100, 120, 15),
+      ],
+      notes:[
+        new Note(70, HEIGHT-120),
+        new Note(300, HEIGHT-150),
+        new Note(430, HEIGHT-130)
+      ],
+      enemies:[
+        new Enemy(200, HEIGHT-118, 60),
+        new Enemy(370, HEIGHT-108, 50)
+      ]
+    }
+  ];
+
+  // --- Spielfeldbegrenzung & Bühnenvorhänge zeichnen ---
+  function drawTheaterBackground(){
+    // Vorhang oben
+    const grad = ctx.createLinearGradient(0,0,0,80);
+    grad.addColorStop(0,'#7a0000');
+    grad.addColorStop(1,'#220000');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,WIDTH,80);
+
+    // Vorhang "Fransen"
+    ctx.fillStyle = '#550000';
+    for(let i=0; i<WIDTH; i+= 20){
+      ctx.beginPath();
+      ctx.moveTo(i,80);
+      ctx.lineTo(i+10,40);
+      ctx.lineTo(i+20,80);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Bühne Holzboden (Hintergrund für Plattformen)
+    ctx.fillStyle = '#5a3b1a';
+    ctx.fillRect(0, HEIGHT-20, WIDTH, 20);
+  }
+
+  // --- Spielvariablen ---
+  let currentLevel = 0;
+  let player = new Player();
+  let platforms = [];
+  let notes = [];
+  let enemies = [];
+  let gameOver = false;
+  let levelComplete = false;
+
+  // Steuerung
+  const keys = {
+    left: false,
+    right: false,
+    jump: false
+  };
+
+  function setupLevel(levelIndex){
+    const lvl = levels[levelIndex];
+    platforms = lvl.platforms;
+    notes = lvl.notes;
+    enemies = lvl.enemies;
+    player.reset();
+    gameOver = false;
+    levelComplete = false;
+    updateHUD();
+    message.style.display = 'none';
+  }
+
+  // --- Kollision Spieler - Notenblätter ---
+  function checkNoteCollection(){
+    for(let note of notes){
+      if(note.collected) continue;
+      // einfache Kollision Spieler-Rechteck vs Kreis-Note
+      const distX = player.x + player.width/2 - note.x;
+      const distY = player.y + player.height/2 - note.y;
+      const dist = Math.sqrt(distX*distX + distY*distY);
+      if(dist < note.radius + Math.min(player.width, player.height)/2){
+        note.collected = true;
+        player.score += 10;
+        updateHUD();
+      }
+    }
+  }
+
+  // --- Kollision Spieler - Gegner ---
+  function checkEnemyCollision(){
+    for(let enemy of enemies){
+      if(!enemy.alive) continue;
+      if(rectsCollide(player, enemy)){
+        player.lives--;
+        updateHUD();
+        if(player.lives <= 0){
+          gameOver = true;
+          message.textContent = "Game Over! Tippe zum Neustart";
+          message.style.display = 'block';
+        } else {
+          player.respawn();
+        }
+      }
+    }
+  }
+
+  // --- Level abschließen ---
+  function checkLevelComplete(){
+    if(notes.every(n => n.collected)){
+      levelComplete = true;
+      message.textContent = "Level " + (currentLevel+1) + " geschafft! Tippe zum nächsten Level";
+      message.style.display = 'block';
+    }
+  }
+
+  // --- HUD aktualisieren ---
+  function updateHUD(){
+   
