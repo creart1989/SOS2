@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>Theaterheld – Patrick Stanke Stil</title>
+<style>
+  body, html {
+    margin: 0; padding: 0; overflow: hidden; background: #111;
+    touch-action: none; /* für mobile Touch-Steuerung */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background: linear-gradient(#222, #555);
+    border: 3px solid #999;
+    image-rendering: pixelated;
+  }
+  #hud {
+    position: fixed;
+    top: 10px; left: 10px;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+    user-select: none;
+  }
+  #controls {
+    position: fixed;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 280px;
+    display: flex;
+    justify-content: space-between;
+    user-select: none;
+  }
+  .btn {
+    width: 70px; height: 70px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 15px;
+    display: flex; justify-content: center; align-items: center;
+    font-size: 30px;
+    color: white;
+    touch-action: manipulation;
+    user-select: none;
+  }
+  .btn:active {
+    background: rgba(255,255,255,0.4);
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">Punkte: 0 | Leben: 3</div>
+<div id="controls">
+  <div class="btn" id="leftBtn">&#8592;</div>
+  <div class="btn" id="jumpBtn">&#8593;</div>
+  <div class="btn" id="rightBtn">&#8594;</div>
+</div>
+
+<canvas id="game" width="480" height="320"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Spielfigur im Patrick Stanke Moonwalker Stil (Cartoon)
+  // Wir zeichnen sie manuell als Canvas Sprite
+
+  class Player {
+    constructor() {
+      this.x = 50;
+      this.y = height - 70; // Bodenhöhe 50px
+      this.width = 32;
+      this.height = 48;
+      this.vx = 0;
+      this.vy = 0;
+      this.speed = 2.5;
+      this.jumpPower = 7;
+      this.onGround = false;
+      this.lives = 3;
+      this.score = 0;
+      this.facing = 1; // 1=rechts, -1=links
+      this.frame = 0;
+      this.frameTimer = 0;
+    }
+    update(platforms) {
+      // Horizontal bewegen
+      this.x += this.vx;
+
+      // Bildschirmbegrenzung
+      if (this.x < 0) this.x = 0;
+      if (this.x + this.width > width) this.x = width - this.width;
+
+      // Vertikale Bewegung & Gravitation
+      this.vy += 0.4; // Gravitation
+      this.y += this.vy;
+
+      // Kollisionsprüfung mit Plattformen (Boden)
+      this.onGround = false;
+      for (const p of platforms) {
+        if (this.x < p.x + p.width &&
+            this.x + this.width > p.x &&
+            this.y + this.height > p.y &&
+            this.y + this.height < p.y + p.height &&
+            this.vy >= 0) {
+          this.y = p.y - this.height;
+          this.vy = 0;
+          this.onGround = true;
+        }
+      }
+
+      // Limit unten (falls runterfallen)
+      if (this.y + this.height > height) {
+        this.lives--;
+        this.resetPosition();
+      }
+
+      // Animations-Frame steuern
+      this.frameTimer++;
+      if (this.frameTimer > 8) {
+        this.frame = (this.frame + 1) % 4;
+        this.frameTimer = 0;
+      }
+    }
+    resetPosition() {
+      this.x = 50;
+      this.y = height - 70;
+      this.vx = 0;
+      this.vy = 0;
+    }
+    draw(ctx) {
+      ctx.save();
+      ctx.translate(this.x + this.width/2, this.y + this.height/2);
+      ctx.scale(this.facing,1);
+
+      // Körper
+      ctx.fillStyle = '#e6c07b'; // Hautfarbe
+      ctx.beginPath();
+      ctx.ellipse(0, -10, 12, 16, 0, 0, Math.PI*2); // Kopf
+      ctx.fill();
+
+      ctx.fillStyle = '#4a2c1a'; // Haar dunkelbraun
+      ctx.beginPath();
+      ctx.ellipse(0, -22, 14, 8, 0, 0, Math.PI*2); // Haare oben
+      ctx.fill();
+
+      // Haare vorne (fransig)
+      ctx.beginPath();
+      ctx.moveTo(-10,-18);
+      ctx.lineTo(-7,-12);
+      ctx.lineTo(-4,-18);
+      ctx.lineTo(-1,-12);
+      ctx.lineTo(2,-18);
+      ctx.lineTo(5,-12);
+      ctx.lineTo(8,-18);
+      ctx.closePath();
+      ctx.fill();
+
+      // Körperkleidung: weißes Hemd + schwarzer Anzug
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-12, 0, 24, 32); // Anzugjacke
+
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(-10, 8, 20, 16); // Hemd vorne
+
+      // Hosen
+      ctx.fillStyle = '#222';
+      ctx.fillRect(-12, 32, 24, 16);
+
+      // Schuhe
+      ctx.fillStyle = '#333';
+      ctx.fillRect(-12, 48, 24, 6);
+
+      // Gesicht (Augen)
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(-5, -12, 2, 0, Math.PI*2); // linkes Auge
+      ctx.arc(5, -12, 2, 0, Math.PI*2); // rechtes Auge
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  class Platform {
+    constructor(x,y,width,height) {
+      this.x = x;
+      this.y = y;
+      this.width = width;
+      this.height = height;
+    }
+    draw(ctx) {
+      ctx.fillStyle = '#663300';
+      ctx.fillRect(this.x, this.y, this.width, this.height);
+      // Bühnen-Holz Textur (einfach)
+      ctx.strokeStyle = '#b97a28';
+      ctx.lineWidth = 2;
+      for (let i=0; i<this.width; i+=10) {
+        ctx.beginPath();
+        ctx.moveTo(this.x + i, this.y);
+        ctx.lineTo(this.x + i, this.y + this.height);
+        ctx.stroke();
+      }
+    }
+  }
+
+  class Collectible {
+    constructor(x,y) {
+      this.x = x;
+      this.y = y;
+      this.radius = 10;
+      this.collected = false;
+      this.color = '#ffd700';
+    }
+    draw(ctx) {
+      if (this.collected) return;
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(this.x - 5, this.y);
+      ctx.lineTo(this.x + 5, this.y);
+      ctx.moveTo(this.x, this.y - 5);
+      ctx.lineTo(this.x, this.y + 5);
+      ctx.stroke();
+    }
+  }
+
+  class Enemy {
+    constructor(x,y,range) {
+      this.x = x;
+      this.y = y;
+      this.width = 30;
+      this.height = 40;
+      this.speed = 1.2;
+      this.dir = 1;
+      this.range = range; // wie weit vor/zurück
+      this.originX = x;
+      this.alive = true;
+    }
+    update() {
+      if (!this.alive) return;
+      this.x += this.speed * this.dir;
+      if (this.x > this.originX + this.range) this.dir = -1;
+      if (this.x < this.originX) this.dir = 1;
+    }
+    draw(ctx) {
+      if (!this.alive) return;
+      ctx.fillStyle = '#b22222';
+      ctx.fillRect(this.x, this.y, this.width, this.height);
+
+      // Augen
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(this.x + 6, this.y + 10, 6, 6);
+      ctx.fillRect(this.x + 18, this.y + 10, 6, 6);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(this.x + 8, this.y + 12, 2, 2);
+      ctx.fillRect(this.x + 20, this.y + 12, 2, 2);
+    }
+  }
+
+  // Steuerung über Buttons & Tastatur
+  const keys = {left:false, right:false, jump:false};
+
+  function setupControls() {
+    document.getElementById('leftBtn').addEventListener('touchstart', e => { keys.left = true; e.preventDefault(); });
+    document.getElementById('leftBtn').addEventListener('touchend', e => { keys.left = false; e.preventDefault(); });
+    document.getElementById('rightBtn').addEventListener('touchstart', e => { keys.right = true; e.preventDefault(); });
+    document.getElementById('rightBtn').addEventListener('touchend', e => { keys.right = false; e.preventDefault(); });
+    document.getElementById('jumpBtn').addEventListener('touchstart', e => { keys.jump = true; e.preventDefault(); });
+    document.getElementById('jumpBtn').addEventListener('touchend', e => { keys.jump = false; e.preventDefault(); });
+
+    window.addEventListener('keydown', e => {
+      if(e.repeat) return;
+      if(e.key === 'ArrowLeft') keys.left = true;
+      if(e.key === 'ArrowRight') keys.right = true;
+      if(e.key === 'ArrowUp' || e.key === ' ') keys.jump = true;
+    });
+    window.addEventListener('keyup', e => {
+      if(e.key === 'ArrowLeft') keys.left = false;
+      if(e.key === 'ArrowRight') keys.right = false;
+      if(e.key === 'ArrowUp' || e.key === ' ') keys.jump = false;
+    });
+  }
+
+  // Level Setup
+  const platforms = [
+    new Platform(0, height - 20, width, 20), // Boden
+    new Platform(100, height - 90, 120, 15),
+    new Platform(280, height - 140, 150, 15),
+  ];
+
+  const collectibles = [
+    new Collectible(130, height - 110),
+    new Collectible(320, height - 160),
+    new Collectible(400, height - 40),
+  ];
+
+  const enemies = [
+    new Enemy(180, height - 60, 70),
+    new Enemy(320, height - 190, 100),
+  ];
+
+  const player = new Player();
+
+  function rectsCollide(a, b) {
+    return a.x < b.x + b.width &&
+           a.x + a.width > b.x &&
+           a.y < b.y + b.height &&
+           a.y + a.height > b.y;
+  }
+
+  function circleRectCollide(circle, rect) {
+    const distX = Math.abs(circle.x - rect.x - rect.width/2);
+    const distY = Math.abs(circle.y - rect.y - rect.height/2);
+
+    if (distX > (rect.width/2 + circle.radius)) return false;
+    if (distY > (rect.height/2 + circle.radius)) return false;
+
+    if (distX <= (rect.width/2)) return true;
+    if (distY <= (rect.height/2)) return true;
+
+    const dx = distX - rect.width/2;
+    const dy = distY - rect.height/2;
+    return (dx*dx + dy*dy <= (circle.radius*circle.radius));
+  }
+
+  // Spiel-Hauptschleife
+  function update() {
+    // Bewegung
+    if (keys.left) {
+      player.vx = -player.speed;
+      player.facing = -1;
+    } else if (keys.right) {
+      player.vx = player.speed;
+      player.facing = 1;
+    } else {
+      player.vx = 0;
+    }
+    if (keys.jump && player.onGround) {
+      player.vy = -player.jumpPower;
+      player.onGround = false;
+    }
+
+    player.update(platforms);
+
+    // Gegner bewegen
+    enemies.forEach(enemy => enemy.update());
+
+    // Kollision Spieler <-> Gegner
+    enemies.forEach(enemy => {
+      if (!enemy.alive) return;
+      if (rectsCollide(player, enemy)) {
+        player.lives--;
+        player.resetPosition();
+      }
+    });
+
+    // Kollision Spieler <-> Sammelobjekte
+    collectibles.forEach(c => {
+      if (!c.collected && circleRectCollide(c, player)) {
+        c.collected = true;
+        player.score += 10;
+      }
+    });
+
+    // HUD aktualisieren
+    document.getElementById('hud').textContent = `Punkte: ${player.score} | Leben: ${player.lives}`;
+
+    // Game Over prüfen
+    if (player.lives <= 0) {
+      alert('Spiel vorbei! Du hast keine Leben mehr.');
+      window.location.reload();
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0,0,width,height);
+
+    // Hintergrund (Theaterbühne)
+    ctx.fillStyle = '#222';
+    ctx.fillRect(0,0,width,height);
+
+    // Bühne (Holzoptik Boden)
+    platforms.forEach(p => p.draw(ctx));
+
+    // Sammelobjekte
+    collectibles.forEach(c => c.draw(ctx));
+
+    // Gegner
+    enemies.forEach(e => e.draw(ctx));
+
+    // Spieler
+    player.draw(ctx);
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  setupControls();
+  loop();
+})();
+</script>
+
+</body>
+</html>
