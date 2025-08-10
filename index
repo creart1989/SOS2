@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>Theater-Notenjagd – Patrick Stanke Edition</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; overflow: hidden;
+    background: linear-gradient(to bottom, #220022, #440044);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    user-select: none;
+  }
+  #gameCanvas {
+    display: block;
+    margin: 0 auto;
+    background: radial-gradient(circle at center, #331133 40%, #110011 90%);
+    border: 6px solid #aa0077;
+    border-radius: 10px;
+    touch-action: none;
+  }
+  #ui {
+    text-align: center;
+    color: #ffccff;
+    margin-top: 10px;
+    font-weight: bold;
+  }
+  #level, #lives, #score {
+    margin: 0 15px;
+  }
+  /* Pfeiltasten unten für Handy */
+  #controls {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 260px;
+    display: flex;
+    justify-content: space-between;
+    user-select: none;
+  }
+  .btn {
+    background: #aa0077cc;
+    border-radius: 8px;
+    width: 60px;
+    height: 60px;
+    color: white;
+    font-size: 30px;
+    line-height: 60px;
+    text-align: center;
+    user-select: none;
+    touch-action: manipulation;
+    box-shadow: 0 0 10px #cc33cc;
+  }
+  .btn:active {
+    background: #dd44aa;
+    box-shadow: 0 0 20px #ff66cc;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="480" height="320"></canvas>
+<div id="ui">
+  <span id="level">Level: 1</span>
+  <span id="lives">Leben: 3</span>
+  <span id="score">Notenblätter: 0</span>
+</div>
+<div id="controls">
+  <div class="btn" data-dir="left">◀</div>
+  <div class="btn" data-dir="up">▲</div>
+  <div class="btn" data-dir="down">▼</div>
+  <div class="btn" data-dir="right">▶</div>
+</div>
+
+<script>
+// --- Variablen ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const levelEl = document.getElementById('level');
+const livesEl = document.getElementById('lives');
+const scoreEl = document.getElementById('score');
+
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+
+let lives = 3;
+let score = 0;
+let level = 1;
+
+const playerSize = 40;
+const playerSpeed = 3;
+
+const noteSize = 25;
+const maxNotes = 5;
+
+let keys = {};
+let touchDirs = {};
+
+let player = {
+  x: WIDTH / 2 - playerSize / 2,
+  y: HEIGHT - playerSize - 10,
+  width: playerSize,
+  height: playerSize,
+  speed: playerSpeed,
+};
+
+let notes = [];
+
+let gameOver = false;
+
+// --- Level Design (Theater Bühnen-Hintergründe) ---
+const levels = [
+  // Level 1
+  {
+    backgroundColor: '#331133',
+    notesCount: 3,
+    obstacles: []
+  },
+  // Level 2
+  {
+    backgroundColor: '#441144',
+    notesCount: 4,
+    obstacles: []
+  },
+  // Level 3
+  {
+    backgroundColor: '#552255',
+    notesCount: 5,
+    obstacles: []
+  }
+];
+
+// --- Spielfigur zeichnen (Cartoon Patrick Stanke angelehnt) ---
+function drawPlayer(x, y) {
+  // Kopf
+  ctx.fillStyle = '#fce0c9'; // Haut
+  ctx.beginPath();
+  ctx.ellipse(x + player.width/2, y + 12, 12, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#4d2a0a';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Haare (kurz und voluminös, braun)
+  ctx.fillStyle = '#5a3b1a';
+  ctx.beginPath();
+  ctx.ellipse(x + player.width/2, y + 6, 15, 15, 0, 0, Math.PI);
+  ctx.fill();
+
+  // Augen
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  ctx.ellipse(x + player.width/2 - 6, y + 10, 4, 3, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + player.width/2 + 6, y + 10, 4, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2a1a00';
+  ctx.beginPath();
+  ctx.ellipse(x + player.width/2 - 6, y + 10, 2, 2, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + player.width/2 + 6, y + 10, 2, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Mund
+  ctx.strokeStyle = '#7a3a19';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x + player.width/2 - 6, y + 22);
+  ctx.quadraticCurveTo(x + player.width/2, y + 27, x + player.width/2 + 6, y + 22);
+  ctx.stroke();
+
+  // Körper (Sakko, lila-farben)
+  ctx.fillStyle = '#703080';
+  ctx.fillRect(x + 10, y + 30, 20, 30);
+  // Hemd (weiß)
+  ctx.fillStyle = 'white';
+  ctx.fillRect(x + 17, y + 30, 6, 10);
+  // Krawatte (rot)
+  ctx.fillStyle = '#aa2222';
+  ctx.beginPath();
+  ctx.moveTo(x + 20, y + 40);
+  ctx.lineTo(x + 22, y + 55);
+  ctx.lineTo(x + 18, y + 55);
+  ctx.closePath();
+  ctx.fill();
+
+  // Arme (lila)
+  ctx.fillStyle = '#703080';
+  ctx.fillRect(x + 3, y + 30, 7, 20);
+  ctx.fillRect(x + 30, y + 30, 7, 20);
+
+  // Beine (dunkellila)
+  ctx.fillStyle = '#401a40';
+  ctx.fillRect(x + 10, y + 60, 10, 20);
+  ctx.fillRect(x + 20, y + 60, 10, 20);
+
+  // Schuhe (schwarz)
+  ctx.fillStyle = 'black';
+  ctx.fillRect(x + 7, y + 80, 10, 5);
+  ctx.fillRect(x + 23, y + 80, 10, 5);
+}
+
+// --- Notenblatt zeichnen ---
+function drawNote(x, y) {
+  ctx.fillStyle = '#ffffcc';
+  ctx.strokeStyle = '#333300';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.rect(x, y, noteSize, noteSize * 1.3);
+  ctx.fill();
+  ctx.stroke();
+
+  // Notenzeile
+  ctx.strokeStyle = '#666600';
+  ctx.lineWidth = 1.5;
+  for (let i=1; i<=4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + 3, y + i * 6);
+    ctx.lineTo(x + noteSize - 3, y + i * 6);
+    ctx.stroke();
+  }
+  // Achtelnote (stilisiert)
+  ctx.fillStyle = '#333300';
+  ctx.beginPath();
+  ctx.arc(x + noteSize/2, y + 20, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(x + noteSize/2 + 2, y + 12, 3, 20);
+}
+
+// --- Bühnenvorhang zeichnen ---
+function drawStage() {
+  // Vorhänge
+  let curtainW = WIDTH / 4;
+  ctx.fillStyle = '#660066';
+  ctx.beginPath();
+  // links
+  ctx.moveTo(0,0);
+  ctx.bezierCurveTo(curtainW/2, HEIGHT/2, curtainW/2, HEIGHT/2, curtainW, HEIGHT);
+  ctx.lineTo(0, HEIGHT);
+  ctx.closePath();
+  ctx.fill();
+  // rechts
+  ctx.beginPath();
+  ctx.moveTo(WIDTH, 0);
+  ctx.bezierCurveTo(WIDTH - curtainW/2, HEIGHT/2, WIDTH - curtainW/2, HEIGHT/2, WIDTH - curtainW, HEIGHT);
+  ctx.lineTo(WIDTH, HEIGHT);
+  ctx.closePath();
+  ctx.fill();
+
+  // Bühnenboden (Holzoptik)
+  let grd = ctx.createLinearGradient(0, HEIGHT*0.8, 0, HEIGHT);
+  grd.addColorStop(0, '#3a1a1a');
+  grd.addColorStop(1, '#8b5a2b');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, HEIGHT*0.8, WIDTH, HEIGHT*0.2);
+
+  // Scheinwerferlicht (spotlight)
+  let spotlightRadius = 150;
+  let spotlightX = player.x + player.width/2;
+  let spotlightY = player.y + player.height/2;
+  let spotlight = ctx.createRadialGradient(spotlightX, spotlightY, 10, spotlightX, spotlightY, spotlightRadius);
+  spotlight.addColorStop(0, 'rgba(255, 230, 200, 0.6)');
+  spotlight.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = spotlight;
+  ctx.beginPath();
+  ctx.arc(spotlightX, spotlightY, spotlightRadius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// --- Spiel-Logik ---
+
+// Reset Notenblätter für aktuelles Level
+function spawnNotes() {
+  notes = [];
+  let count = levels[level - 1].notesCount;
+  for (let i=0; i<count; i++) {
+    let nx, ny;
+    // Notenblätter nicht zu nah an Spieler oder Bühnenrand
+    do {
+      nx = Math.random() * (WIDTH - noteSize - 20) + 10;
+      ny = Math.random() * (HEIGHT*0.8 - noteSize - 10) + 10;
+    } while (distance(nx, ny, player.x, player.y) < 80);
+    notes.push({x: nx, y: ny, collected: false});
+  }
+}
+
+// Abstand berechnen
+function distance(x1, y1, x2, y2) {
+  return Math.sqrt((x2-x1)**2 + (y2-y1)**2);
+}
+
+// Kollision Spieler & Notenblatt
+function checkNoteCollision() {
+  for(let note of notes) {
+    if(!note.collected &&
+       player.x < note.x + noteSize &&
+       player.x + player.width > note.x &&
+       player.y < note.y + noteSize*1.3 &&
+       player.y + player.height > note.y) {
+      note.collected = true;
+      score++;
+      scoreEl.textContent = 'Notenblätter: ' + score;
+      if(score >= levels[level -1].notesCount) {
+        nextLevel();
+      }
+    }
+  }
+}
+
+// Level-Up Funktion
+function nextLevel() {
+  if(level < levels.length) {
+    level++;
+    levelEl.textContent = 'Level: ' + level;
+    score = 0;
+    scoreEl.textContent = 'Notenblätter: ' + score;
+    player.x = WIDTH/2 - player.width/2;
+    player.y = HEIGHT - player.height - 10;
+    spawnNotes();
+  } else {
+    alert('Herzlichen Glückwunsch! Du hast alle Level im Theater gemeistert!');
+    resetGame();
+  }
+}
+
+// Spiel zurücksetzen
+function resetGame() {
+  lives = 3;
+  level = 1;
+  score = 0;
+  livesEl.textContent = 'Leben: ' + lives;
+  levelEl.textContent = 'Level: ' + level;
+  scoreEl.textContent = 'Notenblätter: ' + score;
+  player.x = WIDTH/2 - player.width/2;
+  player.y = HEIGHT - player.height - 10;
+  gameOver = false;
+  spawnNotes();
+}
+
+// Spielerbewegung und Begrenzung
+function movePlayer() {
+  if(keys['ArrowLeft'] || touchDirs['left']) {
+    player.x -= player.speed;
+  }
+  if(keys['ArrowRight'] || touchDirs['right']) {
+    player.x += player.speed;
+  }
+  if(keys['ArrowUp'] || touchDirs['up']) {
+    player.y -= player.speed;
+  }
+  if(keys['ArrowDown'] || touchDirs['down']) {
+    player.y += player.speed;
+  }
+  // Begrenzung am Bildschirmrand
+  if(player.x < 10) player.x = 10;
+  if(player.x + player.width > WIDTH - 10) player.x = WIDTH - 10 - player.width;
+  if(player.y < 10) player.y = 10;
+  if(player.y + player.height > HEIGHT*0.8 - 10) player.y = HEIGHT*0.8 - 10 - player.height;
+}
+
+// --- Event Listener für Tastatur ---
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+});
+window.addEventListener('keyup', e => {
+  keys[e.key] = false;
+});
+
+// --- Touch-Steuerung für Handy ---
+document.querySelectorAll('.btn').forEach(btn => {
+  btn.addEventListener('touchstart', e => {
+    let dir = e.target.getAttribute('data-dir');
+    touchDirs[dir] = true;
+    e.preventDefault();
+  });
+  btn.addEventListener('touchend', e => {
+    let dir = e.target.getAttribute('data-dir');
+    touchDirs[dir] = false;
+    e.preventDefault();
+  });
+});
+
+// --- Haupt-Update-Loop ---
+function update() {
+  if(gameOver) return;
+
+  movePlayer();
+  checkNoteCollision();
+
+  // Bühne & Umgebung
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+  drawStage();
+
+  // Notenblätter
+  for(let note of notes) {
+    if(!note.collected) {
+      drawNote(note.x, note.y);
+    }
+  }
+
+  // Spielfigur
+  drawPlayer(player.x, player.y);
+
+  requestAnimationFrame(update);
+}
+
+// Spielstart
+resetGame();
+update();
+
+</script>
+</body>
+</html>
