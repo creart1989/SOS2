@@ -1,0 +1,87 @@
+body {
+  background: linear-gradient(135deg, #121212, #2a2a2a);
+  color: #eee;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0; padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  height: 100vh;
+}
+
+#app {
+  margin-top: 30px;
+  width: 95vw;
+  max-width: 600px;
+  text-align: center;
+}
+
+#player-hand {
+  margin-top: 20px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.card {
+  background-color: #1c1c1c;
+  border-radius: 8px;
+  box-shadow: 0 0 12px #a77f2f;
+  width: 80px;
+  height: 120px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 10px;
+  color: #f0d868;
+  font-weight: 700;
+  transition: transform 0.2s ease;
+  position: relative;
+}
+
+.card:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 0 20px #ffd700;
+}
+
+.card.selected {
+  border: 3px solid #ffd700;
+  transform: translateY(-15px);
+}
+
+#play-button {
+  margin-top: 15px;
+  padding: 10px 25px;
+  font-weight: 700;
+  background: #a77f2f;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #121212;
+  font-size: 16px;
+  transition: background 0.3s ease;
+}
+
+#play-button:disabled {
+  background: #555;
+  cursor: not-allowed;
+}
+
+#played-cards {
+  margin-top: 30px;
+  min-height: 140px;
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+#message {
+  margin-top: 25px;
+  font-size: 18px;
+  font-weight: 600;
+  min-height: 40px;
+  color: #ffcc00;
+}
