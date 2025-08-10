@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Theater-Notenjagd — Patrick Stanke Edition</title>
+<style>
+  html,body { height:100%; margin:0; background:#0b0710; color:#fff; font-family: Arial, sans-serif; -webkit-user-select:none; }
+  #gameCanvas { display:block; margin:0 auto; background: linear-gradient(#0f1220, #1c2030); touch-action:none; }
+  .ui { position:fixed; left:0; right:0; bottom:0; pointer-events:none; display:flex; justify-content:space-between; padding:10px; }
+  .controls { pointer-events:auto; display:flex; gap:10px; align-items:center; }
+  .btn { width:72px; height:72px; border-radius:50%; background:rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:center; font-size:20px; color:#fff; user-select:none; }
+  .btn:active { transform:scale(0.98); background:rgba(255,255,255,0.12); }
+  .small { width:56px; height:56px; font-size:18px; }
+  #hud { position:fixed; top:10px; left:10px; pointer-events:none; font-weight:bold; background:rgba(0,0,0,0.35); padding:6px 10px; border-radius:8px; }
+  #message { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.75); padding:12px 18px; border-radius:8px; display:none; pointer-events:none; font-size:18px; }
+  #topRight { position:fixed; top:10px; right:10px; pointer-events:auto; display:flex; gap:8px; }
+  .flatBtn { background:rgba(255,255,255,0.06); color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; border:0; }
+  #wrap { display:flex; justify-content:center; align-items:center; height:100%; }
+  #infoSmall { font-size:13px; opacity:0.85; margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="gameCanvas" width="900" height="540"></canvas>
+</div>
+
+<div id="hud">
+  Noten: <span id="score">0</span> / <span id="total">0</span>
+  <div id="infoSmall">Level: <span id="levelIdx">1</span> &nbsp;|&nbsp; Power: <span id="powerState">—</span></div>
+</div>
+
+<div id="topRight">
+  <button id="restartBtn" class="flatBtn">Neustart</button>
+  <button id="nextBtn" class="flatBtn">Nächstes Level</button>
+</div>
+
+<div class="ui">
+  <div class="controls" style="margin-left:8px;">
+    <div id="leftBtn" class="btn">◀</div>
+    <div id="rightBtn" class="btn">▶</div>
+  </div>
+  <div class="controls" style="margin-right:8px;">
+    <div id="jumpBtn" class="btn small">↑</div>
+  </div>
+</div>
+
+<div id="message"></div>
+
+<script>
+/* =========================
+   CONFIG & CANVAS SETUP
+   ========================= */
+const GAME_WIDTH = 900, GAME_HEIGHT = 540;
+const GRAVITY = 2000;
+const MOVE_SPEED = 340;
+const JUMP_SPEED = 820;
+const MAX_DT = 0.05;
+const POWER_DOUBLEJUMP_TIME = 8;
+const particlePoolSize = 140;
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const ratio = GAME_WIDTH / GAME_HEIGHT;
+  let w = window.innerWidth;
+  let h = window.innerHeight;
+  if (h < w / ratio) {
+    canvas.style.width = Math.min(w, GAME_WIDTH) + 'px';
+    canvas.style.height = (canvas.clientWidth / ratio) + 'px';
+  } else {
+    canvas.style.height = Math.min(h * 0.78, GAME_HEIGHT) + 'px';
+    canvas.style.width = (canvas.clientHeight * ratio) + 'px';
+  }
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+/* =========================
+   INPUT
+   ========================= */
+let input = { left:false, right:false, jump:false };
+function setupControls(){
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+  const jumpBtn = document.getElementById('jumpBtn');
+
+  [[leftBtn,'left'],[rightBtn,'right'],[jumpBtn,'jump']].forEach(([el,act])=>{
+    el.addEventListener('touchstart', e => { e.preventDefault(); input[act]=true; }, {passive:false});
+    el.addEventListener('touchend', e => { e.preventDefault(); input[act]=false; }, {passive:false});
+    el.addEventListener('mousedown', e => { e.preventDefault(); input[act]=true; });
+    el.addEventListener('mouseup', e => { e.preventDefault(); input[act]=false; });
+    el.addEventListener('mouseleave', e => { input[act]=false; });
+  });
+
+  window.addEventListener('keydown', e=>{
+    if (e.code === 'ArrowLeft' || e.key === 'a') input.left = true;
+    if (e.code === 'ArrowRight' || e.key === 'd') input.right = true;
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.key === 'w') input.jump = true;
+  });
+  window.addEventListener('keyup', e=>{
+    if (e.code === 'ArrowLeft' || e.key === 'a') input.left = false;
+    if (e.code === 'ArrowRight' || e.key === 'd') input.right = false;
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.key === 'w') input.jump = false;
+  });
+}
+setupControls();
+
+/* =========================
+   LEVELS & STATE
+   ========================= */
+const levels = [
+  {
+    name: "Prolog",
+    outfit: { jacket:'#111', shirt:'#f8f8f8', tie:'#b33' }, // classic suit with tie
+    bg: { top:'#0c0b12', bottom:'#191a28' },
+    platforms: [
+      {x:0, y:GAME_HEIGHT-60, w:GAME_WIDTH, h:60},
+      {x:40, y:GAME_HEIGHT-160, w:240, h:20},
+      {x:320, y:GAME_HEIGHT-220, w:260, h:20},
+      {x:640, y:GAME_HEIGHT-300, w:220, h:20}
+    ],
+    notes: [{x:140,y:GAME_HEIGHT-370},{x:420,y:GAME_HEIGHT-260},{x:720,y:GAME_HEIGHT-350}],
+    enemies: [],
+    powerups: [{x:240,y:GAME_HEIGHT-200, type:'doublejump'}]
+  },
+  {
+    name: "Backstage",
+    outfit: { jacket:'#06132a', shirt:'#f0f6ff', tie:'#2aa' }, // darker jacket, open collar style (no tie)
+    bg: { top:'#0b1420', bottom:'#102032' },
+    platforms: [
+      {x:0, y:GAME_HEIGHT-60, w:GAME_WIDTH, h:60},
+      {x:140, y:GAME_HEIGHT-240, w:160, h:20, move:{axis:'x', range:120, speed:40}},
+      {x:380, y:GAME_HEIGHT-300, w:200, h:20, move:{axis:'y', range:60, speed:45}},
+      {x:640, y:GAME_HEIGHT-180, w:200, h:20}
+    ],
+    notes: [{x:200,y:GAME_HEIGHT-270},{x:450,y:GAME_HEIGHT-330},{x:760,y:GAME_HEIGHT-210},{x:820,y:GAME_HEIGHT-120}],
+    enemies: [{x:520,y:GAME_HEIGHT-120, w:36, h:36, vx:-60}],
+    powerups: []
+  },
+  {
+    name: "Finale",
+    outfit: { jacket:'#3a0716', shirt:'#fff7e6', tie:'#ffd24a' }, // showy finale jacket, yellow accent
+    bg: { top:'#1a0816', bottom:'#2a1228' },
+    platforms: [
+      {x:0, y:GAME_HEIGHT-60, w:GAME_WIDTH, h:60},
+      {x:100, y:GAME_HEIGHT-180, w:140, h:20},
+      {x:300, y:GAME_HEIGHT-240, w:160, h:20, move:{axis:'x', range:180, speed:60}},
+      {x:560, y:GAME_HEIGHT-300, w:200, h:20, move:{axis:'y', range:80, speed:40}},
+      {x:780, y:GAME_HEIGHT-180, w:100, h:20}
+    ],
+    notes: [{x:120,y:GAME_HEIGHT-210},{x:350,y:GAME_HEIGHT-280},{x:620,y:GAME_HEIGHT-340},{x:800,y:GAME_HEIGHT-210},{x:450,y:GAME_HEIGHT-120}],
+    enemies: [{x:450,y:GAME_HEIGHT-100,w:40,h:40,vx:80}],
+    powerups: [{x:700,y:GAME_HEIGHT-320, type:'doublejump'}]
+  }
+];
+
+let currentLevel = 0;
+let platforms = [], notes = [], enemies = [], powerups = [];
+let score = 0;
+const scoreEl = document.getElementById('score');
+const totalEl = document.getElementById('total');
+const levelIdxEl = document.getElementById('levelIdx');
+const powerStateEl = document.getElementById('powerState');
+
+const player = {
+  x:80, y: GAME_HEIGHT-200, w:56, h:92,
+  vx:0, vy:0, grounded:false, facing:1,
+  jumps:0, maxJumps:1, powerDoubleJumpUntil:0
+};
+
+const particles = [];
+for (let i=0;i<particlePoolSize;i++) particles.push({active:false,x:0,y:0,vx:0,vy:0,life:0,ttl:0,color:'#fff'});
+
+let msgTimer = null;
+function showMessage(txt, time=3000){
+  const m = document.getElementById('message');
+  m.style.display = 'block';
+  m.innerText = txt;
+  if (msgTimer) clearTimeout(msgTimer);
+  msgTimer = setTimeout(()=> m.style.display='none', time);
+}
+
+/* =========================
+   LEVEL LOAD / MANAGEMENT
+   ========================= */
+function loadLevel(index){
+  if (index < 0) index = 0;
+  if (index >= levels.length) index = 0;
+  currentLevel = index;
+  const lvl = levels[currentLevel];
+  document.title = 'Theater-Notenjagd — ' + lvl.name;
+  platforms = lvl.platforms.map(p => {
+    const copy = Object.assign({}, p);
+    if (p.move) copy._origin = {x:p.x,y:p.y}, copy._t = 0;
+    return copy;
+  });
+  notes = lvl.notes.map(n => ({x:n.x,y:n.y,r:18, collected:false}));
+  enemies = (lvl.enemies || []).map(e=>Object.assign({vx:e.vx||0,vy:0,alive:true}, e));
+  powerups = (lvl.powerups || []).map(pu => ({x:pu.x,y:pu.y,type:pu.type, taken:false}));
+  score = 0;
+  scoreEl.innerText = score;
+  totalEl.innerText = notes.length;
+  levelIdxEl.innerText = currentLevel+1;
+  powerStateEl.innerText = '—';
+  player.x = 80; player.y = GAME_HEIGHT-200; player.vx=0; player.vy=0; player.grounded=false; player.jumps=0; player.maxJumps=1; player.powerDoubleJumpUntil=0;
+  showMessage('Level ' + (currentLevel+1) + ': ' + lvl.name, 1600);
+}
+
+function nextLevel(){ loadLevel((currentLevel+1) % levels.length); }
+document.getElementById('restartBtn').addEventListener('click', ()=> loadLevel(currentLevel));
+document.getElementById('nextBtn').addEventListener('click', ()=> nextLevel());
+document.body.addEventListener('touchmove', function(e){ if (e.target === canvas || e.target.closest('.btn')) e.preventDefault(); }, {passive:false});
+
+/* =========================
+   UTILS
+   ========================= */
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function rectsOverlap(a,b){ return !(a.x + a.w <= b.x || a.x >= b.x + b.w || a.y + a.h <= b.y || a.y >= b.y + b.h); }
+function spawnParticles(x,y, count=18, color='#ffd'){ for (let i=0;i<particles.length && count>0;i++){ const p=particles[i]; if (!p.active){ p.active=true; p.x=x; p.y=y; const ang=Math.random()*Math.PI*2; const spd=40+Math.random()*160; p.vx=Math.cos(ang)*spd; p.vy=Math.sin(ang)*spd-40; p.ttl=0.45+Math.random()*0.6; p.life=0; p.color=color; count--; } } }
+
+/* =========================
+   PHYSICS & UPDATE
+   ========================= */
+let lastTime = null;
+let staticLastJump = false;
+
+function update(ts){
+  if (!lastTime) lastTime = ts;
+  let dt = Math.min((ts - lastTime)/1000, MAX_DT);
+  lastTime = ts;
+
+  // moving platforms
+  for (let p of platforms){
+    if (p.move){
+      p._t += dt;
+      const m = p.move;
+      const phase = Math.sin(p._t * m.speed * 0.02);
+      if (m.axis === 'x') p.x = p._origin.x + phase * m.range;
+      else p.y = p._origin.y + phase * m.range;
+    }
+  }
+
+  // input -> velocity
+  let move = 0;
+  if (input.left) move -= 1;
+  if (input.right) move += 1;
+  player.vx = move * MOVE_SPEED;
+  if (move !== 0) player.facing = move > 0 ? 1 : -1;
+
+  // gravity
+  player.vy += GRAVITY * dt;
+
+  // jump edge-trigger
+  if (input.jump){
+    if (!staticLastJump){
+      if (player.grounded){
+        player.vy = -JUMP_SPEED;
+        player.grounded = false;
+        player.jumps = 1;
+      } else if (player.jumps < player.maxJumps){
+        player.vy = -JUMP_SPEED * 0.95;
+        player.jumps++;
+        spawnParticles(player.x + player.w/2, player.y + player.h/2, 12, '#aaf');
+      }
+    }
+    staticLastJump = true;
+  } else staticLastJump = false;
+
+  // integrate
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+
+  // bounds & fall
+  if (player.x < 0) player.x = 0;
+  if (player.x + player.w > GAME_WIDTH) player.x = GAME_WIDTH - player.w;
+  if (player.y > GAME_HEIGHT + 200){
+    showMessage('Du bist gefallen! Neustart...',1200);
+    setTimeout(()=> loadLevel(currentLevel), 700);
+  }
+
+  // vertical collisions
+  player.grounded = false;
+  for (let p of platforms){
+    if (player.x + player.w > p.x && player.x < p.x + p.w){
+      if (player.y + player.h > p.y && player.y + player.h - player.vy*dt <= p.y + 4){
+        player.y = p.y - player.h;
+        player.vy = 0;
+        player.grounded = true;
+        player.jumps = 0;
+      }
+    }
+  }
+
+  // horizontal collision resolution
+  for (let p of platforms){
+    if (player.y + player.h > p.y && player.y < p.y + p.h){
+      if (player.x < p.x + p.w && player.x + player.w > p.x){
+        const overlapLeft = player.x + player.w - p.x;
+        const overlapRight = p.x + p.w - player.x;
+        if (overlapLeft < overlapRight) player.x -= overlapLeft;
+        else player.x += overlapRight;
+      }
+    }
+  }
+
+  // enemies
+  for (let e of enemies){
+    if (!e.alive) continue;
+    e.x += (e.vx || 0) * dt;
+    if (e.vx){
+      if (e.x < 40) e.vx = Math.abs(e.vx);
+      if (e.x + (e.w||36) > GAME_WIDTH - 40) e.vx = -Math.abs(e.vx);
+    }
+    if (rectsOverlap({x:player.x,y:player.y,w:player.w,h:player.h}, {x:e.x,y:e.y,w:e.w,h:e.h})){
+      spawnParticles(player.x + player.w/2, player.y + player.h/2, 20, '#f66');
+      showMessage('Getroffen! Neustart...', 1100);
+      setTimeout(()=> loadLevel(currentLevel), 700);
+      return;
+    }
+  }
+
+  // collect notes
+  for (let n of notes){
+    if (!n.collected){
+      const dx = (player.x + player.w/2) - n.x;
+      const dy = (player.y + player.h/2) - n.y;
+      const dist2 = dx*dx + dy*dy;
+      const threshold = (n.r + Math.max(player.w, player.h) / 3);
+      if (dist2 < threshold*threshold){
+        n.collected = true;
+        score++;
+        scoreEl.innerText = score;
+        spawnParticles(n.x, n.y, 26, '#ffe489');
+        if (score === notes.length){
+          showMessage('Alle Noten gesammelt! 🎉', 1600);
+          setTimeout(()=> nextLevel(), 900);
+        } else showMessage('Note eingesammelt!', 900);
+      }
+    }
+  }
+
+  // powerups
+  for (let p of powerups){
+    if (p.taken) continue;
+    if (player.x + player.w > p.x - 12 && player.x < p.x + 12 && player.y + player.h > p.y - 12 && player.y < p.y + 12){
+      p.taken = true;
+      if (p.type === 'doublejump'){
+        player.maxJumps = 2;
+        player.powerDoubleJumpUntil = performance.now()/1000 + POWER_DOUBLEJUMP_TIME;
+        powerStateEl.innerText = 'Doppelsprung';
+        spawnParticles(p.x, p.y, 30, '#aaffff');
+        showMessage('Doppelsprung aktiviert! (' + POWER_DOUBLEJUMP_TIME + 's)', 1400);
+      }
+    }
+  }
+
+  // power timeout
+  if (player.maxJumps > 1 && performance.now()/1000 > player.powerDoubleJumpUntil){
+    player.maxJumps = 1;
+    powerStateEl.innerText = '—';
+  }
+
+  // particles
+  for (let p of particles){
+    if (!p.active) continue;
+    p.life += dt;
+    if (p.life >= p.ttl){ p.active = false; continue; }
+    p.vy += GRAVITY * 0.2 * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+}
+
+/* =========================
+   RENDER
+   ========================= */
+function render(){
+  ctx.clearRect(0,0,GAME_WIDTH,GAME_HEIGHT);
+  const lvl = levels[currentLevel];
+  const g = ctx.createLinearGradient(0,0,0,GAME_HEIGHT);
+  g.addColorStop(0, lvl.bg.top);
+  g.addColorStop(1, lvl.bg.bottom);
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,GAME_WIDTH,GAME_HEIGHT);
+
+  drawCurtains();
+  for (let p of platforms) drawPlatform(p);
+  for (let n of notes) if (!n.collected) drawNote(n);
+  for (let pu of powerups) if (!pu.taken) drawPowerup(pu);
+  for (let e of enemies) if (e.alive) drawEnemy(e);
+  drawPlayer(); // cartoon Patrick
+  for (let p of particles) if (p.active){
+    ctx.globalAlpha = 1 - (p.life / p.ttl);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3.2, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawCurtains(){
+  const cw = 160;
+  ctx.fillStyle = '#3a001f';
+  ctx.fillRect(0,0,cw,GAME_HEIGHT);
+  ctx.fillRect(GAME_WIDTH-cw,0,cw,GAME_HEIGHT);
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  for (let i=20;i<GAME_HEIGHT;i+=28){
+    ctx.beginPath();
+    ctx.moveTo(12, i);
+    ctx.quadraticCurveTo(30, i+12, 12, i+24);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(GAME_WIDTH-12, i);
+    ctx.quadraticCurveTo(GAME_WIDTH-30, i+12, GAME_WIDTH-12, i+24);
+    ctx.stroke();
+  }
+}
+
+function drawPlatform(p){
+  ctx.fillStyle = '#6a5a3f';
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+  ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+  ctx.lineWidth = 1;
+  const step = 22;
+  for (let i=0;i<p.w;i+=step){
+    ctx.beginPath();
+    ctx.moveTo(p.x + i, p.y + 3);
+    ctx.lineTo(p.x + i + 8, p.y + p.h - 3);
+    ctx.stroke();
+  }
+  if (p.move){
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+  }
+}
+
+function drawNote(n){
+  const t = performance.now() * 0.002;
+  const wob = Math.sin(t*2 + n.x*0.01) * 6;
+  ctx.save();
+  ctx.translate(n.x, n.y + wob);
+  ctx.rotate(Math.sin(t*1.3)*0.25);
+  ctx.fillStyle = '#fffbea';
+  ctx.beginPath(); ctx.rect(-14, -20, 28, 36); ctx.fill();
+  ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 1;
+  for (let i=-10;i<=10;i+=5){ ctx.beginPath(); ctx.moveTo(-12, i); ctx.lineTo(12, i); ctx.stroke(); }
+  ctx.fillStyle = '#222'; ctx.beginPath(); ctx.ellipse(6, -6, 6, 8, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(10, -6); ctx.lineTo(10, -28); ctx.lineWidth = 3; ctx.stroke();
+  ctx.restore();
+}
+
+function drawPowerup(pu){
+  ctx.save();
+  ctx.translate(pu.x, pu.y);
+  ctx.rotate(Math.sin(performance.now()*0.003)*0.12);
+  ctx.beginPath(); ctx.arc(0,0,14,0,Math.PI*2); ctx.fillStyle = '#88f'; ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('2J',0,0);
+  ctx.restore();
+}
+
+function drawEnemy(e){
+  ctx.save(); ctx.translate(e.x, e.y);
+  ctx.fillStyle = '#8b2f2f'; ctx.fillRect(0,0,e.w,e.h);
+  ctx.fillStyle = '#fff'; ctx.fillRect(6,6,8,6); ctx.fillRect(e.w-14,6,8,6);
+  ctx.fillStyle = '#000'; ctx.fillRect(8,8,4,4); ctx.fillRect(e.w-12,8,4,4);
+  ctx.restore();
+}
+
+/* =========================
+   CARTOON PATRICK DRAWING
+   - stylized & recognizable by:
+     * hair shape / hairline
+     * subtle beard/shadow
+     * face proportions (chin)
+     * stage outfit per level (jacket, shirt, tie/open collar)
+   ========================= */
+function drawPlayer(){
+  const x = player.x, y = player.y;
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(x + player.w/2, y + player.h - 8, player.w*0.5, 8, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // torso & jacket (uses level outfit)
+  const outfit = levels[currentLevel].outfit;
+  const torsoH = Math.floor(player.h * 0.56);
+  ctx.fillStyle = outfit.jacket; // jacket color
+  ctx.fillRect(x, y + player.h - torsoH - 18, player.w, torsoH);
+
+  // shirt / inner
+  ctx.fillStyle = outfit.shirt;
+  ctx.fillRect(x + 8, y + player.h - torsoH - 8, player.w - 16, torsoH - 24);
+
+  // tie or open collar: draw tie if tie color provided and not empty
+  if (outfit.tie){
+    ctx.fillStyle = outfit.tie;
+    // draw narrow tie or bow-like shape depending on level (simple triangle)
+    ctx.beginPath();
+    ctx.moveTo(x + player.w/2 - 6, y + player.h - torsoH + 8);
+    ctx.lineTo(x + player.w/2 + 6, y + player.h - torsoH + 8);
+    ctx.lineTo(x + player.w/2, y + player.h - torsoH + 34);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // legs
+  ctx.fillStyle = '#0b0b0b';
+  ctx.fillRect(x + 8, y + player.h - 22, 18, 22);
+  ctx.fillRect(x + player.w - 26, y + player.h - 22, 18, 22);
+
+  // arms with mic pose
+  ctx.save();
+  ctx.translate(x + player.w/2, y + player.h - torsoH/3);
+  const armSwing = Math.sin(performance.now()*0.006 + (player.vx?0.5:0)) * 0.18;
+  ctx.rotate(armSwing);
+  // left arm
+  ctx.fillStyle = outfit.jacket;
+  ctx.fillRect(-player.w/2 - 6, 6, 14, 10);
+  // right arm holding mic up (slightly raised)
+  ctx.fillRect(player.w/2 - 8, 6, 14, 10);
+  // mic stick & head
+  ctx.fillStyle = '#222'; ctx.fillRect(player.w/2 + 8, 6, 4, 18);
+  ctx.beginPath(); ctx.arc(player.w/2 + 10, 6, 7, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // HEAD - stylized portrait emphasizing recognizable traits
+  const headW = 56, headH = 64;
+  const hx = x + player.w/2 - headW/2;
+  const hy = y - 12;
+
+  // face base (oval)
+  ctx.fillStyle = '#f2d1c9';
+  roundOval(ctx, hx + headW/2, hy + headH/2, headW/2, headH/2);
+
+  // hair: strong hairline sweeping back (dark brown)
+  ctx.fillStyle = '#241a18';
+  ctx.beginPath();
+  ctx.moveTo(hx + 6, hy + 22);
+  ctx.quadraticCurveTo(hx + 18, hy - 18, hx + 46, hy + 14);
+  ctx.lineTo(hx + 46, hy + 34);
+  ctx.quadraticCurveTo(hx + 32, hy + 30, hx + 6, hy + 34);
+  ctx.closePath();
+  ctx.fill();
+
+  // subtle beard / 3-Tage-Schatten: slightly darker oval under chin and along jaw
+  ctx.fillStyle = 'rgba(36,28,26,0.26)';
+  ctx.beginPath();
+  ctx.ellipse(hx + headW/2, hy + headH/2 + 10, 18, 10, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // eyebrows
+  ctx.fillStyle = '#1a1414';
+  roundedRect(ctx, hx + 12, hy + 18, 10, 3, 2); // left brow
+  roundedRect(ctx, hx + 34, hy + 18, 10, 3, 2); // right brow
+  ctx.fill();
+
+  // eyes
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(hx + 18, hy + 28, 3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 38, hy + 28, 3, 0, Math.PI*2); ctx.fill();
+
+  // nose (subtle)
+  ctx.fillStyle = '#e2b9af';
+  ctx.beginPath();
+  ctx.moveTo(hx + 28, hy + 30);
+  ctx.quadraticCurveTo(hx + 26, hy + 36, hx + 30, hy + 38);
+  ctx.fill();
+
+  // mouth - charming smile
+  ctx.strokeStyle = '#7b3b3b';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(hx + 28, hy + 40, 7.5, 0.25, Math.PI - 0.25);
+  ctx.stroke();
+
+  // tiny glasses hint? (optional subtle stage lighting reflection)
+  // outline face
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(hx + headW/2, hy + headH/2, headW/2-2, headH/2-2, 0, 0, Math.PI*2);
+  ctx.stroke();
+}
+
+/* helper: rounded rectangle */
+function roundedRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/* helper: oval by drawing ellipse */
+function roundOval(ctx, cx, cy, rx, ry){
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+  ctx.fill();
+}
+
+/* =========================
+   GAME LOOP
+   ========================= */
+function loop(ts){
+  update(ts);
+  render();
+  requestAnimationFrame(loop);
+}
+
+/* INIT */
+loadLevel(0);
+requestAnimationFrame(loop);
+window._game = { player, platforms, notes, enemies, powerups, levels, loadLevel, nextLevel, spawnParticles };
+
+/* helper used earlier */
+function roundRectBox(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+</script>
+</body>
+</html>
