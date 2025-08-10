@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>Patrick Stanke Theater Game</title>
+<style>
+  body, html {
+    margin: 0; padding: 0; overflow: hidden;
+    background: linear-gradient(to top, #111 0%, #555 100%);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    user-select: none;
+  }
+  #gameCanvas {
+    background: url('https://i.imgur.com/DSw0bSI.png') no-repeat center bottom;
+    background-size: cover;
+    display: block;
+    margin: auto;
+    border: 4px solid #663300;
+    border-radius: 12px;
+  }
+  #ui {
+    position: fixed;
+    top: 10px; left: 50%; transform: translateX(-50%);
+    color: #ffe;
+    font-weight: bold;
+    font-size: 18px;
+    text-shadow: 2px 2px 4px #000;
+    user-select: none;
+  }
+  #touchControls {
+    position: fixed;
+    bottom: 15px;
+    width: 100%;
+    text-align: center;
+    user-select: none;
+    display: none;
+  }
+  .btn {
+    display: inline-block;
+    background: rgba(255,255,255,0.2);
+    border: 2px solid #eee;
+    border-radius: 8px;
+    width: 60px; height: 60px;
+    margin: 0 10px;
+    font-size: 30px;
+    color: #eee;
+    line-height: 60px;
+    font-weight: bold;
+    user-select: none;
+    touch-action: manipulation;
+  }
+  .btn:active {
+    background: rgba(255,255,255,0.6);
+    color: #000;
+  }
+  @media (max-width: 700px) {
+    #touchControls {
+      display: block;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="ui">Level: 1 | Leben: 3 | Notenblätter: 0</div>
+<canvas id="gameCanvas" width="800" height="450"></canvas>
+
+<div id="touchControls">
+  <div class="btn" id="leftBtn">◀</div>
+  <div class="btn" id="jumpBtn">▲</div>
+  <div class="btn" id="rightBtn">▶</div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const ui = document.getElementById('ui');
+
+  // --- Konstanten ---
+  const GRAVITY = 0.6;
+  const FLOOR_Y = canvas.height - 70;  // Bühne ist unten bei y=380 (450-70)
+  const PLAYER_WIDTH = 48;
+  const PLAYER_HEIGHT = 64;
+  const MAX_LEVEL = 3;
+
+  // --- Assets ---
+
+  // Spielfigur Sprite (Patrick Stanke cartoon im Moonwalker-Stil, hier einfach als gezeichnete Figur)
+  // Für Demo zeichnen wir einfach eine Figur mit Kleidungsfarben
+  // (Du kannst hier ein echtes Sprite-Image laden und animieren, wenn du möchtest)
+  function drawPlayer(x, y, direction, frame) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (direction === -1) ctx.scale(-1, 1);
+    
+    // Körper
+    ctx.fillStyle = '#3a2f1d'; // brauner Anzug
+    ctx.fillRect(-PLAYER_WIDTH/2, -PLAYER_HEIGHT, PLAYER_WIDTH, PLAYER_HEIGHT);
+
+    // Kopf
+    ctx.beginPath();
+    ctx.fillStyle = '#f1c27d'; // Hautfarbe
+    ctx.arc(0, -PLAYER_HEIGHT - 20, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Haare (typisch Patrick Stanke)
+    ctx.fillStyle = '#654321';
+    ctx.fillRect(-15, -PLAYER_HEIGHT - 40, 30, 20);
+    
+    // Gesicht (Augen & Mund als einfache Punkte)
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(-7, -PLAYER_HEIGHT - 22, 3, 0, Math.PI * 2);
+    ctx.arc(7, -PLAYER_HEIGHT - 22, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, -PLAYER_HEIGHT - 10, 6, 0, Math.PI);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // Notenblatt zeichnen
+  function drawNote(x, y) {
+    ctx.save();
+    ctx.fillStyle = '#ffeb3b';
+    ctx.beginPath();
+    ctx.rect(x - 12, y - 18, 24, 36);
+    ctx.fill();
+
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 8, y);
+    ctx.lineTo(x + 8, y);
+    ctx.moveTo(x - 8, y + 10);
+    ctx.lineTo(x + 8, y + 10);
+    ctx.stroke();
+
+    // Kleiner Notenschlüssel
+    ctx.beginPath();
+    ctx.arc(x + 6, y - 6, 5, 0, Math.PI * 1.5);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // Level-Hintergrund zeichnen (Theater Kulisse)
+  function drawBackground(level) {
+    // Einfacher Theater-Bühnen-Look
+    ctx.fillStyle = '#280000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Vorhang
+    ctx.fillStyle = '#800000';
+    ctx.fillRect(0, 0, canvas.width, 100);
+
+    // Bühne (Holz)
+    ctx.fillStyle = '#7b4c1f';
+    ctx.fillRect(0, FLOOR_Y, canvas.width, canvas.height - FLOOR_Y);
+
+    // Spotlights
+    for(let i=0; i<4; i++) {
+      const x = 100 + i * 180;
+      const grad = ctx.createRadialGradient(x, 100, 10, x, FLOOR_Y, 150);
+      grad.addColorStop(0, 'rgba(255,255,180,0.8)');
+      grad.addColorStop(1, 'rgba(255,255,180,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(x - 100, FLOOR_Y);
+      ctx.lineTo(x, 100);
+      ctx.lineTo(x + 100, FLOOR_Y);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Backstage Türen (Level-Ende)
+    ctx.fillStyle = '#330000';
+    ctx.fillRect(canvas.width - 60, FLOOR_Y - 100, 50, 100);
+    ctx.fillStyle = '#550000';
+    ctx.fillRect(canvas.width - 55, FLOOR_Y - 95, 40, 90);
+  }
+
+  // Plattform zeichnen
+  function drawPlatform(p) {
+    ctx.fillStyle = '#b3742f';
+    ctx.fillRect(p.x, p.y, p.width, p.height);
+  }
+
+  // --- Game-State ---
+  let level = 1;
+  let lives = 3;
+  let score = 0;
+
+  // Spielfigur Position & Bewegung
+  let player = {
+    x: 50,
+    y: FLOOR_Y,
+    width: PLAYER_WIDTH,
+    height: PLAYER_HEIGHT,
+    dx: 0,
+    dy: 0,
+    speed: 4,
+    jumping: false,
+    direction: 1,
+  };
+
+  // Steuerung
+  const keys = {
+    left: false,
+    right: false,
+    jump: false
+  };
+
+  // Touch Buttons
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+  const jumpBtn = document.getElementById('jumpBtn');
+
+  leftBtn.addEventListener('touchstart', e => { e.preventDefault(); keys.left = true; });
+  leftBtn.addEventListener('touchend', e => { e.preventDefault(); keys.left = false; });
+
+  rightBtn.addEventListener('touchstart', e => { e.preventDefault(); keys.right = true; });
+  rightBtn.addEventListener('touchend', e => { e.preventDefault(); keys.right = false; });
+
+  jumpBtn.addEventListener('touchstart', e => { e.preventDefault(); if (!player.jumping) keys.jump = true; });
+  jumpBtn.addEventListener('touchend', e => { e.preventDefault(); keys.jump = false; });
+
+  // Level Daten (Plattformen & Notenblätter)
+  const levels = [
+    {
+      platforms: [
+        { x: 0, y: FLOOR_Y, width: canvas.width, height: 20 },
+        { x: 180, y: FLOOR_Y - 100, width: 120, height: 15 },
+        { x: 400, y: FLOOR_Y - 180, width: 100, height: 15 },
+      ],
+      notes: [
+        { x: 220, y: FLOOR_Y - 120, collected: false },
+        { x: 430, y: FLOOR_Y - 200, collected: false },
+        { x: 700, y: FLOOR_Y - 40, collected: false }
+      ]
+    },
+    {
+      platforms: [
+        { x: 0, y: FLOOR_Y, width: canvas.width, height: 20 },
+        { x: 130, y: FLOOR_Y - 130, width: 100, height: 15 },
+        { x: 360, y: FLOOR_Y - 80, width: 150, height: 15 },
+        { x: 600, y: FLOOR_Y - 150, width: 120, height: 15 }
+      ],
+      notes: [
+        { x: 150, y: FLOOR_Y - 160, collected: false },
+        { x: 400, y: FLOOR_Y - 110, collected: false },
+        { x: 620, y: FLOOR_Y - 180, collected: false }
+      ]
+    },
+    {
+      platforms: [
+        { x: 0, y: FLOOR_Y, width: canvas.width, height: 20 },
+        { x: 200, y: FLOOR_Y - 90, width: 150, height: 15 },
+        { x: 450, y: FLOOR_Y - 130, width: 130, height: 15 },
+        { x: 670, y: FLOOR_Y - 90, width: 90, height: 15 }
+      ],
+      notes: [
+        { x: 250, y: FLOOR_Y - 120, collected: false },
+        { x: 480, y: FLOOR_Y - 160, collected: false },
+        { x: 700, y: FLOOR_Y - 120, collected: false }
+      ]
+    }
+  ];
+
+  function resetPlayer() {
+    player.x = 50;
+    player.y = FLOOR_Y;
+    player.dx = 0;
+    player.dy = 0;
+    player.jumping = false;
+    player.direction = 1;
+  }
+
+  function update() {
+    // Bewegung
+    if (keys.left) {
+      player.dx = -player.speed;
+      player.direction = -1;
+    } else if (keys.right) {
+      player.dx = player.speed;
+      player.direction = 1;
+    } else {
+      player.dx = 0;
+    }
+
+    // Springen
+    if (keys.jump && !player.jumping) {
+      player.dy = -12;
+      player.jumping = true;
+      keys.jump = false; // verhindert Dauerjump
+    }
+
+    // Physik
+    player.dy += GRAVITY;
+    player.x += player.dx;
+    player.y += player.dy;
+
+    // Grenzen setzen (Bildschirm)
+    if (player.x < player.width/2) player.x = player.width/2;
+    if (player.x > canvas.width - player.width/2) player.x = canvas.width - player.width/2;
+
+    // Kollision mit Plattformen
+    const plat = levels[level - 1].platforms;
+    let onPlatform = false;
+    for (let p of plat) {
+      if (
+        player.x + player.width/2 > p.x &&
+        player.x - player.width/2 < p.x + p.width &&
+        player.y + player.height/2 > p.y &&
+        player.y + player.height/2 < p.y + p.height &&
+        player.dy >= 0
+      ) {
+        player.y = p.y - player.height/2;
+        player.dy = 0;
+        player.jumping = false;
+        onPlatform = true;
+      }
+    }
+    if (!onPlatform && player.y + player.height/2 >= FLOOR_Y + 20) {
+      // Unterboden (fällt durch Boden?)
+      lives--;
+      if (lives <= 0) {
+        alert('Game Over! Du hast keine Leben mehr.');
+        resetGame();
+      } else {
+        alert('Du bist gefallen! Leben: ' + lives);
+        resetPlayer();
+      }
+    }
+
+    // Notenblätter einsammeln
+    let notes = levels[level - 1].notes;
+    for (let note of notes) {
+      if (!note.collected) {
+        let dx = player.x - note.x;
+        let dy = player.y + player.height/2 - note.y;
+        if (Math.sqrt(dx*dx + dy*dy) < 40) {
+          note.collected = true;
+          score++;
+        }
+      }
+    }
+
+    // Level beenden (bei Bühne rechts)
+    if (player.x > canvas.width - 80) {
+      if (level < MAX_LEVEL) {
+        level++;
+        alert('Super! Nächstes Level.');
+        resetPlayer();
+      } else {
+        alert('Herzlichen Glückwunsch! Du hast alle Level geschafft.');
+        resetGame();
+      }
+    }
+  }
+
+  function resetGame() {
+    level = 1;
+    lives = 3;
+    score = 0;
+    resetPlayer();
+    // Reset notes
+    for(let lvl of levels) {
+      for(let n of lvl.notes) {
+        n.collected = false;
+      }
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawBackground(level);
+
+    // Plattformen
+    for (let p of levels[level - 1].platforms) {
+      drawPlatform(p);
+    }
+
+    // Notenblätter
+    for (let n of levels[level - 1].notes) {
+      if (!n.collected) {
+        drawNote(n.x, n.y);
+      }
+    }
+
+    // Spielfigur
+    drawPlayer(player.x, player.y, player.direction);
+
+    // UI Update
+    ui.textContent = `Level: ${level} | Leben: ${lives} | Notenblätter: ${score}`;
+  }
+
+  function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Steuerung Tastatur
+  window.addEventListener('keydown', e => {
+    if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+    if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+    if(e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') keys.jump = true;
+  });
+  window.addEventListener('keyup', e => {
+    if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+    if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+    if(e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') keys.jump = false;
+  });
+
+  resetPlayer();
+  gameLoop();
+})();
+</script>
+
+</body>
+</html>
