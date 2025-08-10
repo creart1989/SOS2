@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Theater Moonwalker - Patrick Stanke Style</title>
+<style>
+  html, body {
+    margin:0; padding:0; overflow:hidden; background: #111;
+    font-family: 'Arial', sans-serif;
+    user-select: none;
+  }
+  #gameCanvas {
+    background: linear-gradient(to top, #200000 0%, #400000 80%, #000 100%);
+    display: block;
+    margin: 0 auto;
+    image-rendering: pixelated;
+    border: 5px solid #602020;
+    border-radius: 8px;
+    touch-action: none;
+  }
+  #ui {
+    color: white;
+    text-align: center;
+    margin-top: 8px;
+    font-weight: bold;
+    letter-spacing: 1.2px;
+  }
+  #instructions {
+    color: #ccc;
+    font-size: 14px;
+    margin-top: 6px;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="480" height="320"></canvas>
+<div id="ui">
+  <div id="status"></div>
+  <div id="instructions">Steuerung: Pfeiltasten oder W/A/S/D (Mobile: Bildschirmwischer)</div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const WIDTH = canvas.width;
+  const HEIGHT = canvas.height;
+
+  // Spieler-Setup
+  const player = {
+    x: WIDTH / 10,
+    y: HEIGHT - 70,
+    width: 48,
+    height: 64,
+    speed: 3,
+    vx: 0,
+    vy: 0,
+    lives: 3,
+    collected: 0,
+    maxLives: 3,
+    frame: 0,
+    frameTick: 0,
+  };
+
+  // Level-Setup
+  const TOTAL_LEVELS = 20;
+  let currentLevel = 1;
+  let gameOver = false;
+  let levelComplete = false;
+  let keys = {};
+
+  // Notenblatt Sammelobjekte
+  class Collectible {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+      this.size = 24;
+      this.collected = false;
+    }
+    draw() {
+      if (this.collected) return;
+      ctx.fillStyle = "#FFF";
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      ctx.lineTo(this.x + this.size * 0.7, this.y + this.size * 0.3);
+      ctx.lineTo(this.x, this.y + this.size);
+      ctx.lineTo(this.x, this.y);
+      ctx.stroke();
+      ctx.fill();
+      // Linien Notenblatt
+      ctx.strokeStyle = "#444";
+      ctx.lineWidth = 1;
+      for(let i=1; i<=3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(this.x + 3, this.y + i * (this.size/4));
+        ctx.lineTo(this.x + this.size * 0.65, this.y + i * (this.size/4));
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Gegner (Tomate, Kritiker)
+  class Enemy {
+    constructor(x, y, type) {
+      this.x = x;
+      this.y = y;
+      this.width = 48;
+      this.height = 48;
+      this.type = type; // "tomate" oder "kritiker"
+      this.speed = 1 + Math.random() * 1.5;
+      this.direction = Math.random() < 0.5 ? 1 : -1;
+    }
+    update() {
+      this.x += this.speed * this.direction;
+      if(this.x < 0 || this.x + this.width > WIDTH) {
+        this.direction *= -1;
+      }
+    }
+    draw() {
+      if(this.type === 'tomate') {
+        // einfache Tomate: roter Kreis mit Blatt
+        ctx.fillStyle = "#d00";
+        ctx.beginPath();
+        ctx.ellipse(this.x + this.width/2, this.y + this.height/2, this.width/2, this.height/2.2, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = "#060";
+        ctx.beginPath();
+        ctx.moveTo(this.x + this.width/2 - 10, this.y + this.height/2 - 20);
+        ctx.lineTo(this.x + this.width/2 + 10, this.y + this.height/2 - 20);
+        ctx.lineTo(this.x + this.width/2, this.y + this.height/2 - 40);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        // Kritiker: Cartoon-Gesicht mit Brille
+        ctx.fillStyle = "#bbb";
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        // Augen
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.arc(this.x + 15, this.y + 20, 6, 0, Math.PI*2);
+        ctx.arc(this.x + 33, this.y + 20, 6, 0, Math.PI*2);
+        ctx.fill();
+        // Brillenrahmen
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.rect(this.x + 8, this.y + 12, 14, 16);
+        ctx.rect(this.x + 26, this.y + 12, 14, 16);
+        ctx.moveTo(this.x + 22, this.y + 20);
+        ctx.lineTo(this.x + 26, this.y + 20);
+        ctx.stroke();
+        // Mund (kritisch)
+        ctx.strokeStyle = "#900";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(this.x + 15, this.y + 40);
+        ctx.lineTo(this.x + 33, this.y + 40);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Bühne (Level) Design: einfache Plattformen & Hintergrund
+  class Platform {
+    constructor(x, y, w, h) {
+      this.x = x; this.y = y; this.width = w; this.height = h;
+    }
+    draw() {
+      ctx.fillStyle = "#301010";
+      ctx.fillRect(this.x, this.y, this.width, this.height);
+      ctx.strokeStyle = "#600";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(this.x, this.y, this.width, this.height);
+    }
+  }
+
+  // Spielfigur als Cartoon-Portrait (Patrick Stanke inspiriert)
+  function drawPlayer(px, py) {
+    // Körper
+    ctx.fillStyle = '#282828';
+    ctx.fillRect(px, py + 40, player.width, player.height - 40);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(px, py + 40, player.width, player.height - 40);
+
+    // Kopf oval
+    ctx.fillStyle = '#f5d7b4';
+    ctx.beginPath();
+    ctx.ellipse(px + player.width/2, py + 30, 20, 28, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#61380b';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Haare (stilisiert)
+    ctx.fillStyle = '#402a12';
+    ctx.beginPath();
+    ctx.moveTo(px + 10, py + 15);
+    ctx.bezierCurveTo(px + 15, py - 10, px + 45, py - 10, px + 38, py + 15);
+    ctx.lineTo(px + 38, py + 35);
+    ctx.lineTo(px + 10, py + 35);
+    ctx.closePath();
+    ctx.fill();
+
+    // Augen
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(px + 15, py + 25, 6, 8, 0, 0, Math.PI*2);
+    ctx.ellipse(px + 33, py + 25, 6, 8, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = '#3a230f';
+    ctx.beginPath();
+    ctx.ellipse(px + 15, py + 27, 3, 4, 0, 0, Math.PI*2);
+    ctx.ellipse(px + 33, py + 27, 3, 4, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Mund
+    ctx.strokeStyle = '#6a2c0f';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px + 18, py + 45);
+    ctx.lineTo(px + 30, py + 45);
+    ctx.stroke();
+  }
+
+  // Game State
+  let collectibles = [];
+  let enemies = [];
+  let platforms = [];
+
+  // Level Daten (Plattformen, Gegner, Sammelobjekte)
+  function generateLevel(levelNum) {
+    collectibles = [];
+    enemies = [];
+    platforms = [];
+
+    // Grundboden
+    platforms.push(new Platform(0, HEIGHT - 20, WIDTH, 20));
+
+    // Bühne: einfache Plattformen verteilt
+    const platformCount = 3 + Math.min(levelNum, 7);
+    for(let i=0; i < platformCount; i++) {
+      let pw = 100 + Math.random()*60;
+      let px = Math.random()*(WIDTH - pw);
+      let py = HEIGHT - 80 - i * 50 - Math.random()*20;
+      platforms.push(new Platform(px, py, pw, 12));
+    }
+
+    // Sammelobjekte auf Plattformen
+    platforms.forEach(p => {
+      if(Math.random() > 0.5 && collectibles.length < levelNum + 2) {
+        let cx = p.x + 10 + Math.random() * (p.width - 30);
+        let cy = p.y - 20;
+        collectibles.push(new Collectible(cx, cy));
+      }
+    });
+
+    // Gegner je Level ansteigen (Tomaten & Kritiker)
+    let enemyCount = Math.min(3 + levelNum, 12);
+    for(let i=0; i<enemyCount; i++) {
+      let ex = Math.random()*(WIDTH - 48);
+      let ey = HEIGHT - 68 - Math.random()*120;
+      enemies.push(new Enemy(ex, ey, Math.random() > 0.5 ? 'tomate' : 'kritiker'));
+    }
+
+    // Reset Player Position & State
+    player.x = WIDTH / 10;
+    player.y = HEIGHT - 70;
+    player.lives = Math.min(player.lives, player.maxLives);
+    player.collected = 0;
+  }
+
+  // Kollisionserkennung Rechteck
+  function rectIntersect(ax, ay, aw, ah, bx, by, bw, bh) {
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
+  // Update Game State
+  function update() {
+    if(gameOver) return;
+
+    // Bewegung
+    player.vx = 0;
+    player.vy = 0;
+
+    if(keys['ArrowLeft'] || keys['a']) player.vx = -player.speed;
+    if(keys['ArrowRight'] || keys['d']) player.vx = player.speed;
+    if(keys['ArrowUp'] || keys['w']) {
+      // Springen nur wenn auf Boden/Plattform
+      if(player.onGround) {
+        player.vy = -8;
+        player.onGround = false;
+      }
+    }
+
+    // Gravitation & Y-Bewegung
+    player.vy += 0.5; // gravity
+    player.y += player.vy;
+    player.x += player.vx;
+
+    // Bildschirmbegrenzung X
+    if(player.x < 0) player.x = 0;
+    if(player.x + player.width > WIDTH) player.x = WIDTH - player.width;
+
+    // Plattform-Kollision Y
+    player.onGround = false;
+    for(let p of platforms) {
+      // check collision from top
+      if(player.y + player.height > p.y && player.y + player.height < p.y + p.height && player.x + player.width > p.x && player.x < p.x + p.width && player.vy >= 0) {
+        player.y = p.y - player.height;
+        player.vy = 0;
+        player.onGround = true;
+      }
+    }
+    // Boden
+    if(player.y + player.height > HEIGHT) {
+      player.y = HEIGHT - player.height;
+      player.vy = 0;
+      player.onGround = true;
+    }
+
+    // Sammelobjekte einsammeln
+    collectibles.forEach(c => {
+      if(!c.collected && rectIntersect(player.x, player.y, player.width, player.height, c.x, c.y, c.size, c.size)) {
+        c.collected = true;
+        player.collected++;
+      }
+    });
+
+    // Gegner bewegen & Kollision prüfen
+    enemies.forEach(e => {
+      e.update();
+      if(rectIntersect(player.x, player.y, player.width, player.height, e.x, e.y, e.width, e.height)) {
+        // Verliere Leben & reset Position
+        player.lives--;
+        player.x = WIDTH / 10;
+        player.y = HEIGHT - 70;
+        if(player.lives <= 0) gameOver = true;
+      }
+    });
+
+    // Levelabschluss wenn alle Noten gesammelt
+    if(player.collected === collectibles.length && collectibles.length > 0) {
+      levelComplete = true;
+    }
+  }
+
+  // Zeichne UI
+  function drawUI() {
+    const status = document.getElementById('status');
+    if(gameOver) {
+      status.innerHTML = `GAME OVER! Du hast alle Leben verloren. <br> Seite neu laden, um neu zu starten.`;
+    } else if(levelComplete) {
+      status.innerHTML = `Level ${currentLevel} geschafft! Weiter mit Leertaste oder Klick.`;
+    } else {
+      status.innerHTML = `Level: ${currentLevel} | Leben: ${player.lives} | Noten gesammelt: ${player.collected} / ${collectibles.length}`;
+    }
+  }
+
+  // Zeichenfunktion
+  function draw() {
+    // Hintergrund Bühne (Theateroptik)
+    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    ctx.fillStyle = '#280000';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    // Bühne links/rechts Vorhang (rot)
+    ctx.fillStyle = '#600000';
+    ctx.fillRect(0, 0, 40, HEIGHT);
+    ctx.fillRect(WIDTH - 40, 0, 40, HEIGHT);
+
+    // Bühne vorne Boden (Holzoptik)
+    ctx.fillStyle = '#503000';
+    ctx.fillRect(40, HEIGHT - 20, WIDTH - 80, 20);
+
+    // Plattformen
+    platforms.forEach(p => p.draw());
+
+    // Sammelobjekte
+    collectibles.forEach(c => c.draw());
+
+    // Gegner
+    enemies.forEach(e => e.draw());
+
+    // Spieler zeichnen
+    drawPlayer(player.x, player.y);
+
+    // UI
+    drawUI();
+  }
+
+  // Spiel starten / Level laden
+  function startLevel(levelNum) {
+    gameOver = false;
+    levelComplete = false;
+    generateLevel(levelNum);
+  }
+
+  // Key Events
+  window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    if(levelComplete && (e.key === ' ' || e.key === 'Enter')) {
+      if(currentLevel < TOTAL_LEVELS) {
+        currentLevel++;
+        startLevel(currentLevel);
+      } else {
+        alert('Glückwunsch! Du hast alle Level geschafft!');
+        gameOver = true;
+      }
+    }
+  });
+  window.addEventListener('keyup', e => {
+    keys[e.key] = false;
+  });
+
+  // Touch Steuerung (einfache Wischer)
+  let touchStartX = 0, touchStartY = 0;
+  window.addEventListener('touchstart', e => {
+    if(e.touches.length === 1) {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }
+  });
+  window.addEventListener('touchmove', e => {
+    if(e.touches.length === 1) {
+      const dx = e.touches[0].clientX - touchStartX;
+      const dy = e.touches[0].clientY - touchStartY;
+      keys['ArrowLeft'] = dx < -30;
+      keys['ArrowRight'] = dx > 30;
+      keys['ArrowUp'] = dy < -30;
+    }
+  });
+  window.addEventListener('touchend', e => {
+    keys['ArrowLeft'] = false;
+    keys['ArrowRight'] = false;
+    keys['ArrowUp'] = false;
+  });
+
+  // Hauptschleife
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // Start
+  startLevel(currentLevel);
+  loop();
+
+})();
+</script>
+
+</body>
+</html>
