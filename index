@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+<title>Patrick Stanke - Theater Jump'n'Run</title>
+<style>
+  html, body {
+    margin:0; padding:0; height:100%;
+    background: radial-gradient(circle at center, #2a2438 0%, #1b1b2e 100%);
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+  #gameCanvas {
+    display: block;
+    margin: 0 auto;
+    background: linear-gradient(to top, #2f2245 0%, #4c3c71 100%);
+    border-radius: 12px;
+    box-shadow: 0 0 15px #000a inset;
+    touch-action: none;
+  }
+  #hud {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    color: #f3e79b;
+    font-weight: 700;
+    font-size: 20px;
+    text-shadow: 1px 1px 4px #0008;
+    user-select: none;
+    z-index: 10;
+  }
+  #message {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(20,20,40,0.85);
+    padding: 22px 32px;
+    border-radius: 18px;
+    font-size: 26px;
+    font-weight: 700;
+    color: #ffde59;
+    text-align: center;
+    display: none;
+    z-index: 20;
+    box-shadow: 0 0 18px #ffde59cc;
+  }
+  .ui {
+    position: fixed;
+    bottom: 10px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 20px;
+    pointer-events: none;
+    user-select: none;
+    z-index: 11;
+  }
+  .controls {
+    pointer-events: auto;
+    display: flex;
+    gap: 14px;
+  }
+  .btn {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: rgba(255 255 255 / 0.12);
+    color: #f3e79b;
+    font-size: 34px;
+    line-height: 72px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s ease;
+    box-shadow: 0 0 8px #fff4;
+    font-weight: 800;
+    font-family: monospace;
+  }
+  .btn:active {
+    background: rgba(255 255 255 / 0.3);
+    transform: scale(0.95);
+    box-shadow: 0 0 14px #ffde59;
+  }
+  .btn.small {
+    width: 56px;
+    height: 56px;
+    font-size: 28px;
+    line-height: 56px;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">Noten: <span id="score">0</span> / <span id="total">0</span></div>
+<div id="message"></div>
+
+<div class="ui">
+  <div class="controls" style="margin-left:8px;">
+    <div id="leftBtn" class="btn">◀</div>
+    <div id="rightBtn" class="btn">▶</div>
+  </div>
+  <div class="controls" style="margin-right:8px;">
+    <div id="jumpBtn" class="btn small">↑</div>
+  </div>
+</div>
+
+<canvas id="gameCanvas" width="900" height="540" tabindex="0"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const WIDTH = canvas.width;
+  const HEIGHT = canvas.height;
+
+  const GRAVITY = 2500;
+  const MOVE_SPEED = 380;
+  const JUMP_SPEED = 950;
+
+  // Platforms = Bühnenbretter, Vorhangbalken, Theaterboden
+  const platforms = [
+    {x:0, y:HEIGHT - 60, w:WIDTH, h:60, color: '#422c65'},          // Bühne Boden dunkel
+    {x: 30, y: HEIGHT - 160, w: 250, h: 18, color: '#5b3e85'},      // oberes Brett links
+    {x: 330, y: HEIGHT - 230, w: 280, h: 20, color: '#63428e'},     // Mitte Brett
+    {x: 670, y: HEIGHT - 300, w: 190, h: 20, color: '#6e4ba1'},     // rechts Brett
+    {x: 180, y: HEIGHT - 360, w: 120, h: 18, color: '#7150a6'},     // kleines Brett links oben
+    {x: 540, y: HEIGHT - 400, w: 160, h: 18, color: '#6b4699'},     // kleines Brett Mitte oben
+  ];
+
+  // Sammelobjekte - Noten
+  const notes = [
+    {x: 90, y: HEIGHT - 210, r: 18, collected:false},
+    {x: 400, y: HEIGHT - 270, r: 18, collected:false},
+    {x: 720, y: HEIGHT - 340, r: 18, collected:false},
+    {x: 220, y: HEIGHT - 400, r: 18, collected:false},
+    {x: 570, y: HEIGHT - 440, r: 18, collected:false},
+    {x: 340, y: HEIGHT - 360, r: 18, collected:false},
+    {x: 800, y: HEIGHT - 350, r: 18, collected:false},
+  ];
+
+  // Spielfigur Patrick Stanke (cartoonähnlich, ähnlich Moonwalker)
+  // Charakter zeichnet sich durch markante Gesichtszüge + Hut + Mikrofon aus
+
+  const player = {
+    x: 60,
+    y: HEIGHT - 150,
+    w: 52,
+    h: 92,
+    vx: 0,
+    vy: 0,
+    grounded: false,
+    facing: 1,
+    jumpCooldown: 0
+  };
+
+  // Steuerung
+  const input = {left:false, right:false, jump:false};
+
+  function setupControls(){
+    const leftBtn = document.getElementById('leftBtn');
+    const rightBtn = document.getElementById('rightBtn');
+    const jumpBtn = document.getElementById('jumpBtn');
+
+    [[leftBtn, 'left'], [rightBtn, 'right'], [jumpBtn, 'jump']].forEach(([btn, action]) => {
+      btn.addEventListener('touchstart', e => { e.preventDefault(); input[action] = true; });
+      btn.addEventListener('touchend', e => { e.preventDefault(); input[action] = false; });
+      btn.addEventListener('mousedown', e => { e.preventDefault(); input[action] = true; });
+      btn.addEventListener('mouseup', e => { e.preventDefault(); input[action] = false; });
+      btn.addEventListener('mouseleave', e => { input[action] = false; });
+    });
+
+    window.addEventListener('keydown', e => {
+      if (e.repeat) return;
+      if (['ArrowLeft','KeyA'].includes(e.code)) input.left = true;
+      if (['ArrowRight','KeyD'].includes(e.code)) input.right = true;
+      if (['Space','ArrowUp','KeyW'].includes(e.code)) input.jump = true;
+    });
+    window.addEventListener('keyup', e => {
+      if (['ArrowLeft','KeyA'].includes(e.code)) input.left = false;
+      if (['ArrowRight','KeyD'].includes(e.code)) input.right = false;
+      if (['Space','ArrowUp','KeyW'].includes(e.code)) input.jump = false;
+    });
+  }
+  setupControls();
+
+  // Kollisions-Abfrage Rechteck-zu-Rechteck
+  function rectCollides(a, b) {
+    return (a.x < b.x + b.w) && (a.x + a.w > b.x) &&
+           (a.y < b.y + b.h) && (a.y + a.h > b.y);
+  }
+
+  // Kollisions-Abfrage mit Plattformen (für Boden)
+  function checkPlatformCollision(px, py, pw, ph) {
+    for (const p of platforms) {
+      if (py + ph > p.y && py + ph < p.y + p.h && px + pw > p.x && px < p.x + p.w) {
+        return p.y - ph;
+      }
+    }
+    return null;
+  }
+
+  // Kollisionsabfrage mit Noten (Kreis-zu-Rechteck)
+  function circleRectCollide(cx, cy, cr, rx, ry, rw, rh) {
+    const closestX = Math.max(rx, Math.min(cx, rx + rw));
+    const closestY = Math.max(ry, Math.min(cy, ry + rh));
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    return (dx * dx + dy * dy) < (cr * cr);
+  }
+
+  // HUD
+  const scoreEl = document.getElementById('score');
+  const totalEl = document.getElementById('total');
+  totalEl.textContent = notes.length;
+
+  // Nachricht anzeigen
+  const messageEl = document.getElementById('message');
+  let msgTimeout;
+
+  function showMessage(text){
+    messageEl.textContent = text;
+    messageEl.style.display = 'block';
+    clearTimeout(msgTimeout);
+    msgTimeout = setTimeout(() => messageEl.style.display = 'none', 3500);
+  }
+
+  // Zeichenfunktionen
+
+  // Zeichnet eine Note (musikalische Note)
+  function drawNote(x, y, r) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = '#ffcc2f';
+    ctx.shadowColor = '#ffaa00';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.6, r * 1.0, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#a76c00';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(r*0.4, -r*0.9);
+    ctx.lineTo(r*0.4, r*0.9);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(r*0.4, -r*0.9, r*0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // Zeichnet Spielfigur (Patrick Stanke cartoonstyle)
+  // Erkennbar an Hut, Mikrofon und Gesichtszügen
+
+  function drawPlayer(x, y, facing, frame){
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Schatten
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.beginPath();
+    ctx.ellipse(26, 90, 28, 12, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Körper (Anzug, Jacke)
+    ctx.fillStyle = '#18204f';
+    ctx.strokeStyle = '#3a4a9e';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(10, 30);
+    ctx.lineTo(42, 30);
+    ctx.lineTo(46, 85);
+    ctx.lineTo(8, 85);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Hemd (hellblau)
+    ctx.fillStyle = '#99b9f3';
+    ctx.beginPath();
+    ctx.moveTo(16, 35);
+    ctx.lineTo(36, 35);
+    ctx.lineTo(36, 55);
+    ctx.lineTo(16, 55);
+    ctx.closePath();
+    ctx.fill();
+
+    // Gesicht
+    ctx.fillStyle = '#f6d1b8';
+    ctx.strokeStyle = '#c38260';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.ellipse(26, 18, 16, 20, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Augen
+    ctx.fillStyle = '#292929';
+    ctx.beginPath();
+    ctx.ellipse(20, 16, 3, 4, 0, 0, Math.PI*2);
+    ctx.ellipse(32, 16, 3, 4, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Mund (leicht lächelnd)
+    ctx.strokeStyle = '#ac6350';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(17, 28);
+    ctx.quadraticCurveTo(26, 34, 35, 28);
+    ctx.stroke();
+
+    // Nase
+    ctx.strokeStyle = '#c38260';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(26, 18);
+    ctx.lineTo(26, 24);
+    ctx.stroke();
+
+    // Hut (fedora)
+    ctx.fillStyle = '#121639';
+    ctx.strokeStyle = '#2b2d4c';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(26, 4, 32, 14, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#1c1e3b';
+    ctx.beginPath();
+    ctx.moveTo(-6, 0);
+    ctx.lineTo(58, 0);
+    ctx.lineTo(58, 10);
+    ctx.lineTo(-6, 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Mikrofon (links in Hand)
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(10, 55);
+    ctx.lineTo(10 - 8 * facing, 50);
+    ctx.lineTo(12 - 8 * facing, 44);
+    ctx.stroke();
+
+    ctx.fillStyle = '#cccccc';
+    ctx.beginPath();
+    ctx.ellipse(12 - 8 * facing, 42, 6, 10, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Beine - animiert leicht
+    const legSwing = Math.sin(frame * 8) * 8;
+
+    ctx.fillStyle = '#121639';
+    ctx.beginPath();
+    ctx.moveTo(14, 85);
+    ctx.lineTo(26 + legSwing, 140);
+    ctx.lineTo(36 + legSwing, 140);
+    ctx.lineTo(34, 85);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(38, 85);
+    ctx.lineTo(50 - legSwing, 140);
+    ctx.lineTo(58 - legSwing, 140);
+    ctx.lineTo(46, 85);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // Zeichnet Bühnenvorhang (oben)
+  function drawCurtains() {
+    const w = WIDTH;
+    const h = 120;
+    ctx.save();
+    ctx.fillStyle = '#4b183d';
+    ctx.shadowColor = '#aa2244';
+    ctx.shadowBlur = 22;
+
+    for (let i = 0; i < 8; i++) {
+      const x = i * (w / 8);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.quadraticCurveTo(x + (w / 16), h / 3, x + (w / 8), 0);
+      ctx.lineTo(x + (w / 8), h);
+      ctx.lineTo(x, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Zeichnet Scheinwerfer-Effekte am oberen Rand
+  function drawSpotlights(t) {
+    ctx.save();
+    const spotlightCount = 5;
+    const maxRadius = 100;
+    ctx.globalAlpha = 0.12;
+    for(let i=0; i < spotlightCount; i++) {
+      const x = i * (WIDTH / spotlightCount) + (Math.sin(t * 2 + i) * 40);
+      const y = 0;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, maxRadius);
+      grad.addColorStop(0, '#ffff99');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, maxRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Level zeichnen
+  function drawLevel(t) {
+    // Bühne Boden & Bretter
+    for (const p of platforms) {
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = '#000a';
+      ctx.shadowBlur = 12;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+    }
+    drawCurtains();
+    drawSpotlights(t);
+  }
+
+  // Kamera (scroll)
+  let camX = 0;
+
+  // Score
+  let score = 0;
+
+  // Hauptupdate
+ 
