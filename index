@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+<title>Balatro-inspired — Musical Run (Patrick Stanke Jokers)</title>
+<style>
+  :root{
+    --bg:#0b0810;
+    --panel:#141018;
+    --accent:#c58fb8;
+    --muted:#9b8aa0;
+    --cardback:linear-gradient(180deg,#1b0f1a,#2b1b2a);
+    --glass: rgba(255,255,255,0.03);
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+  #app{display:flex;flex-direction:column;height:100%;}
+  header{display:flex;align-items:center;gap:18px;padding:14px 20px;background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-bottom:1px solid rgba(255,255,255,0.03);}
+  .logo{display:flex;align-items:center;gap:12px}
+  .logo .pig{width:48px;height:48px;border-radius:10px;background:linear-gradient(180deg,#3a1228,#1b0812);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent);font-size:18px;}
+  h1{font-size:18px;margin:0}
+  main{flex:1;display:flex;gap:18px;padding:18px;align-items:stretch;}
+  /* left: game area */
+  .stage{flex:2;background:linear-gradient(180deg,#120713,#1b0b18);border-radius:12px;padding:12px;box-shadow:0 6px 30px rgba(0,0,0,0.6);display:flex;flex-direction:column;}
+  .stage .board{flex:1;border-radius:10px;background:linear-gradient(180deg,#1c0c16,#150616);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;}
+  .theater-back{position:absolute;inset:0;background:
+    radial-gradient(ellipse at 20% 20%, rgba(255,210,200,0.03) 0, transparent 30%),
+    linear-gradient(180deg, rgba(0,0,0,0.2), transparent 40%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.01) 0 1px, transparent 1px 24px);pointer-events:none;}
+  .stage .controls{display:flex;gap:8px;align-items:center;justify-content:space-between;padding-top:12px;}
+  .panel{background:var(--panel);border-radius:10px;padding:10px;border:1px solid rgba(255,255,255,0.03);box-shadow:inset 0 1px 0 rgba(255,255,255,0.01);}
+  /* right: Joker / UI */
+  .side{width:420px;display:flex;flex-direction:column;gap:12px;}
+  .side .deck{padding:12px;display:flex;flex-direction:column;gap:10px;}
+  .hand{display:flex;gap:8px;align-items:flex-end;justify-content:center;padding:10px;}
+  .card{width:92px;height:128px;border-radius:8px;background:var(--cardback);box-shadow:0 6px 18px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.03);position:relative;cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;padding:8px;user-select:none;}
+  .card .rank{font-weight:700;font-size:20px;color:#fff;}
+  .card .suit{font-size:18px;color:var(--muted);}
+  .card.small{width:74px;height:102px}
+  .card.back{background:linear-gradient(180deg,#2a1420,#1b0b14);display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:700}
+  .info{display:flex;gap:8px;align-items:center;justify-content:space-between;}
+  .btn{background:linear-gradient(180deg,#2b1630,#2b1630);border:1px solid rgba(255,255,255,0.03);color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer}
+  .btn.primary{background:linear-gradient(180deg,var(--accent),#a86aa0);color:#120412}
+  .muted{color:var(--muted);font-size:13px}
+  .joker-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:60vh;overflow:auto;padding-right:6px}
+  .joker{background:linear-gradient(180deg,#1b0f16,#26101b);padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.02);cursor:pointer;display:flex;flex-direction:column;gap:6px}
+  .joker h3{margin:0;font-size:14px;color:var(--accent)}
+  .hud{display:flex;gap:12px;align-items:center}
+  .small-muted{font-size:12px;color:var(--muted)}
+  footer{padding:8px 18px;text-align:center;color:var(--muted);font-size:13px}
+  /* responsive */
+  @media (max-width:1100px){
+    .side{width:340px}
+  }
+  @media (max-width:900px){
+    main{flex-direction:column}
+    .side{width:auto;order:2}
+    .stage{order:1}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">
+      <div class="pig">MS</div>
+      <div>
+        <h1>Musical-Balatro — Patrick Stanke Jokers</h1>
+        <div class="small-muted">Ein elegantes, dunkles Balatro-inspiriertes Demo (Einzelspieler)</div>
+      </div>
+    </div>
+    <div style="flex:1"></div>
+    <div class="hud panel" id="hud">
+      <div style="display:flex;gap:14px;align-items:center">
+        <div>Runde: <strong id="round">1</strong></div>
+        <div>Chips: <strong id="chips">100</strong></div>
+        <div>Ante: <strong id="ante">5</strong></div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="board panel">
+        <div class="theater-back"></div>
+        <canvas id="table" width="920" height="480" style="max-width:100%;border-radius:8px"></canvas>
+      </div>
+
+      <div class="controls">
+        <div style="display:flex;gap:8px">
+          <button id="btnDeal" class="btn primary">Hand austeilen</button>
+          <button id="btnConfirm" class="btn">Bestätigen</button>
+          <button id="btnPlayJoker" class="btn">Joker aktivieren</button>
+        </div>
+        <div class="muted small-muted">Tippe Karten an, um sie zu wählen (mobile: Tap).</div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="panel deck">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="muted">Spielerhand</div>
+            <strong id="playerHandCount">0 Karten</strong>
+          </div>
+          <div>
+            <div class="muted">Gegner</div>
+            <strong id="aiHandCount">0 Karten</strong>
+          </div>
+        </div>
+
+        <div class="hand" id="handContainer" style="min-height:120px"></div>
+
+        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px">
+          <div class="muted">Spiel-Log</div>
+          <div id="log" class="muted small-muted">Willkommen. Drücke "Hand austeilen".</div>
+        </div>
+      </div>
+
+      <div class="panel" style="padding:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="muted">Joker (Musical Edition)</div>
+            <strong id="jokerSlots">Joker-Slots: 5</strong>
+          </div>
+          <div>
+            <button id="btnOpenJokers" class="btn">Joker ansehen</button>
+          </div>
+        </div>
+
+        <div style="height:12px"></div>
+        <div class="muted small-muted">Wähle einen Joker, dann "Joker aktivieren" um den Effekt einmal auszulösen.</div>
+      </div>
+
+      <div class="panel" id="jokerPanel" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div><strong>Joker-Sammlung</strong></div>
+          <div><button id="btnCloseJokers" class="btn">Schließen</button></div>
+        </div>
+        <div class="joker-list" id="jokerList"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>Demo — inspiriert von Balatro. 150 Jokers im Original; dieses Demo nutzt 24 eigens gestaltete Musical-Joker. </footer>
+</div>
+
+<script>
+// ========== Utilities ==========
+const suits = ['♠','♥','♦','♣'];
+const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]] } return a; }
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+
+// ========== Card and Deck ==========
+function buildStandardDeck(){
+  const deck=[];
+  for(const s of suits){
+    for(const r of ranks){
+      deck.push({r,rdisplay:r,suit:s, type:'normal'});
+    }
+  }
+  return deck;
+}
+// We'll treat Jokers separately (player holds them as slots)
+const ALL_JOKERS = makeJokers(); // defined below
+
+// ========== Game State ==========
+let game = {
+  chips: 100,
+  ante: 5,
+  round: 1,
+  deck: [],
+  playerHand: [],
+  aiHand: [],
+  community: [], // Balatro uses setups; simplified: we make player's hand vs AI
+  jokersOwned: [], // list of joker objects
+  selectedJoker: null,
+  selectedCards: new Set(),
+  log: [],
+};
+
+// ========== UI elements ==========
+const table = document.getElementById('table');
+const ctx = table.getContext('2d');
+const handContainer = document.getElementById('handContainer');
+const logEl = document.getElementById('log');
+const playerHandCount = document.getElementById('playerHandCount');
+const aiHandCount = document.getElementById('aiHandCount');
+const chipsEl = document.getElementById('chips');
+const roundEl = document.getElementById('round');
+const anteEl = document.getElementById('ante');
+const btnDeal = document.getElementById('btnDeal');
+const btnConfirm = document.getElementById('btnConfirm');
+const btnPlayJoker = document.getElementById('btnPlayJoker');
+const btnOpenJokers = document.getElementById('btnOpenJokers');
+const btnCloseJokers = document.getElementById('btnCloseJokers');
+const jokerPanel = document.getElementById('jokerPanel');
+const jokerList = document.getElementById('jokerList');
+const jokerSlotsEl = document.getElementById('jokerSlots');
+const notesSpan = document.getElementById('notes'); // not used for chips game but kept
+
+chipsEl.textContent = game.chips;
+roundEl.textContent = game.round;
+anteEl.textContent = game.ante;
+
+// ========== Rendering functions ==========
+function drawTable(){
+  // clear
+  ctx.clearRect(0,0,table.width,table.height);
+
+  // backdrop: elegant dark gradient + spotlight
+  const g = ctx.createLinearGradient(0,0,0,table.height);
+  g.addColorStop(0,'#0f0710');
+  g.addColorStop(1,'#1d0b1b');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,table.width,table.height);
+
+  // stage floor
+  ctx.fillStyle = '#2e0e12';
+  ctx.fillRect(0, table.height-120, table.width, 140);
+
+  // center play area
+  ctx.fillStyle = 'rgba(255,255,255,0.02)';
+  ctx.fillRect(60,60,table.width-120, table.height-220);
+
+  // draw player's area
+  ctx.fillStyle = 'rgba(255,255,255,0.01)';
+  ctx.fillRect(60,table.height-200, table.width-120, 120);
+
+  // draw hands (as cards)
+  drawHandOnCanvas(game.playerHand, 80, table.height-180, true);
+  drawHandOnCanvas(game.aiHand, 80, 80, false);
+
+  // if selected cards, highlight
+  for(const idx of game.selectedCards){
+    highlightCard(80 + idx*110, table.height-180);
+  }
+}
+
+function highlightCard(x,y){
+  ctx.strokeStyle = 'rgba(200,150,220,0.9)';
+  ctx.lineWidth = 4;
+  roundRect(ctx,x-6,y-6,100+12,140+12,10,true,false);
+}
+function drawCard(c,x,y,w=100,h=140,face=true){
+  // card border
+  const rgrad = ctx.createLinearGradient(x,y,x+w,y+h);
+  rgrad.addColorStop(0,'rgba(255,255,255,0.03)');
+  rgrad.addColorStop(1,'rgba(0,0,0,0.02)');
+  ctx.fillStyle = rgrad;
+  roundRect(ctx,x,y,w,h,10,false,true);
+  // content
+  if(!face){
+    // back design
+    ctx.fillStyle = '#2b0f20';
+    roundRect(ctx,x+8,y+8,w-16,h-16,8,true,false);
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(x+20,y+20,w-40,h-40);
+    return;
+  }
+  // face
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px Inter, Arial';
+  ctx.fillText(c.rdisplay, x+10, y+28);
+  ctx.fillStyle = (c.suit==='♥' || c.suit==='♦') ? '#d75a6a':'#ccc';
+  ctx.font = '32px serif';
+  ctx.fillText(c.suit, x+12, y+64);
+  // bottom right mirrored
+  ctx.save();
+  ctx.translate(x+w-10, y+h-10);
+  ctx.rotate(Math.PI);
+  ctx.fillStyle = (c.suit==='♥' || c.suit==='♦') ? '#d75a6a':'#ccc';
+  ctx.font = '18px Inter, Arial';
+  ctx.fillText(c.rdisplay, 0, 0);
+  ctx.fillText(c.suit, 0, -26);
+  ctx.restore();
+}
+
+function drawHandOnCanvas(hand, startX, startY, face=true){
+  for(let i=0;i<hand.length;i++){
+    const x = startX + i*110;
+    const y = startY;
+    drawCard(hand[i], x, y, 100, 140, face);
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r, fill, stroke){
+  if (typeof r === 'undefined') r = 5;
+  if (typeof stroke === 'undefined') stroke = true;
+  if (typeof fill === 'undefined') fill = true;
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y,   x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x,   y+h, r);
+  ctx.arcTo(x,   y+h, x,   y,   r);
+  ctx.arcTo(x,   y,   x+w, y,   r);
+  ctx.closePath();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
+}
+
+// ========== Deck & dealing ==========
+function resetDeck(){
+  const base = buildStandardDeck();
+  shuffle(base);
+  game.deck = base;
+}
+function drawCardFromDeck(){
+  if(game.deck.length===0){ resetDeck(); }
+  return game.deck.shift();
+}
+
+// ========== Simple AI ==========
+function aiPlay(){
+  // simple AI: draw same number of cards as player, random discard small chance
+  // In Balatro AI has complex logic; here a simplified opponent for a playable demo
+  while(game.aiHand.length < 5){
+    game.aiHand.push(drawCardFromDeck());
+  }
+  // small random swaps
+  if(Math.random() < 0.4){
+    // replace one card
+    const idx = Math.floor(Math.random()*5);
+    game.aiHand[idx] = drawCardFromDeck();
+  }
+}
+
+// ========== Hand evaluation (poker rank) ==========
+function rankHand(hand){
+  // Evaluate 5-card poker hand -> returns {rankName, rankValue}
+  // For demo, implement common ranks: HighCard..StraightFlush
+  // Map ranks to numbers
+  const rankOrder = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
+  const vals = hand.map(c=>rankOrder[c.rdisplay]).sort((a,b)=>a-b);
+  const suitsArr = hand.map(c=>c.suit);
+  const counts = {};
+  for(const v of vals) counts[v] = (counts[v]||0)+1;
+  const freq = Object.values(counts).sort((a,b)=>b-a); // e.g. [3,2]
+  const flush = suitsArr.every(s=>s===suitsArr[0]);
+  // straight check (A-low not implemented for simplicity)
+  let straight = true;
+  for(let i=1;i<vals.length;i++) if(vals[i] !== vals[i-1]+1) straight=false;
+  const maxFreq = Math.max(...Object.values(counts));
+  // rank ordering: 8 straight flush,7 four,6 full house,5 flush,4 straight,3 trips,2 two pair,1 pair,0 high
+  let rankValue=0, rankName='High Card';
+  if(straight && flush){ rankValue=8; rankName='Straight Flush'; }
+  else if(maxFreq===4){ rankValue=7; rankName='Four of a Kind'; }
+  else if(freq[0]===3 && freq[1]===2){ rankValue=6; rankName='Full House'; }
+  else if(flush){ rankValue=5; rankName='Flush'; }
+  else if(straight){ rankValue=4; rankName='Straight'; }
+  else if(maxFreq===3){ rankValue=3; rankName='Three of a Kind'; }
+  else if(freq[0]===2 && freq[1]===2){ rankValue=2; rankName='Two Pair'; }
+  else if(maxFreq===2){ rankValue=1; rankName='Pair'; }
+  else { rankValue=0; rankName='High Card'; }
+  return {rankValue, rankName, vals};
+}
+
+// ========== Jokers: Musical / Patrick Stanke themed ==========
+// We'll build 24 creative jokers.
+// Each Joker has: id,name,rarity,description,apply(player,ai,game)
+function makeJokers(){
+  const list=[];
+  function add(id,name,rarity,desc,applyFn){
+    list.push({id,name,rarity,desc,apply:applyFn});
+  }
+  // Example jokers - these are designed to be intuitive and thematic
+  add('ps_echo','Echo des Vorhangs','Rare','Verdoppelt den aktuellen Hand-Multiplier wenn du ein Paar spielst.',(owner,ai,game)=>{
+    // effect: if player's best rankValue >=1 (pair), double multiplier (implemented as bonusChips)
+    const ph = owner.hand;
+    const rank = rankHand(ph);
+    if(rank.rankValue>=1){ owner.bonusMult = (owner.bonusMult||1)*2; return {msg:'Echo aktiviert: Multipliziert Paar-Bonus x2'}; }
+    return {msg:'Echo wirkte nicht (kein Paar)'}; 
+  });
+
+  add('ps_applause','Applaus','Uncommon','Gibt sofort +10 Chips.',(owner,ai,game)=>{
+    game.chips += 10;
+    return {msg:'Applaus: +10 Chips'};
+  });
+
+  add('ps_spotlight','Scheinwerfer','Uncommon','Zeigt die beste Karte des Gegners an (für eine Runde).',(owner,ai,game)=>{
+    // reveal ai's highest card to player log
+    const aiRanked = rankHand(ai.hand);
+    return {msg:`Scheinwerfer zeigt: Gegner Hand-Rank ${aiRanked.rankName}`};
+  });
+
+  add('ps_autograph','Autogramm','Rare','Tauscht eine Karte zwischen dir und dem Gegner aus.',(owner,ai,game)=>{
+    // swap random card
+    const i = Math.floor(Math.random()*owner.hand.length);
+    const j = Math.floor(Math.random()*ai.hand.length);
+    const tmp = owner.hand[i];
+    owner.hand[i]=ai.hand[j];
+    ai.hand[j]=tmp;
+    return {msg:'Autogramm tauscht zufällig eine Karte mit dem Gegner.'};
+  });
+
+  add('ps_crescendo','Crescendo','Rare','Erhöht deinen Handsize-Multiplier leicht (+1 Mult).',(owner,ai,game)=>{
+    owner.bonusMult = (owner.bonusMult||1)+1;
+    return {msg:'Crescendo: +1 Mult (temporär)'};
+  });
+
+  add('ps_backstage','Backstage Pass','Epic','Ziehe 2 Karten und wähle eine, behalte eine andere.',(owner,ai,game)=>{
+    owner.hand.push(drawCardFromDeck());
+    owner.hand.push(drawCardFromDeck());
+    return {msg:'Backstage Pass: 2 Karten gezogen.'};
+  });
+
+  add('ps_duet','Duett','Uncommon','Kopiert eine zufällige Karte des Gegners in deine Hand.',(owner,ai,game)=>{
+    const j = Math.floor(Math.random()*ai.hand.length);
+    owner.hand.push(clone(ai.hand[j]));
+    return {msg:'Duett: Kopierte eine Gegnerkarte.'};
+  });
+
+  add('ps_phantom','Phantom','Legendary','Entfernt die schwächste Karte des Gegners aus der Runde.',(owner,ai,game)=>{
+    // remove ai lowest value
+    const rankOrder = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
+    let minIdx=0, minV=999;
+    ai.hand.forEach((c,i)=>{ const v=rankOrder[c.rdisplay]; if(v<minV){minV=v;minIdx=i;} });
+    ai.hand.splice(minIdx,1);
+    return {msg:'Phantom entfernt eine Karte des Gegners.'};
+  });
+
+  add('ps_marquee','Leuchtkasten','Uncommon','Erhöht den Ante geringfügig, gibt aber Chips zurück (+5).',(owner,ai,game)=>{
+    game.ante = Math.min(50, game.ante + 1);
+    game.chips += 5;
+    return {msg:'Leuchtkasten: Ante+1, +5 Chips gegeben'};
+  });
+
+  add('ps_standby','Understudy','Common','Ersetze eine deiner Karten mit einer aus dem Deck.',(owner,ai,game)=>{
+    if(owner.hand.length>0){
+      owner.hand[0]=drawCardFromDeck();
+      return {msg:'Understudy: erste Karte ersetzt.'};
+    }
+    return {msg:'Understudy: keine Wirkung.'};
+  });
+
+  add('ps_chorus','Chor','Common','Ermöglicht, eine Karte zweimal in der Wertung zu zählen (legt eine Kopie).',(owner,ai,game)=>{
+    if(owner.hand.length>0){
+      owner.hand.push(clone(owner.hand[Math.floor(Math.random()*owner.hand.length)]));
+      return {msg:'Chor: eine Karte wurde kopiert.'};
+    }
+    return {msg:'Chor nichts getan.'};
+  });
+
+  add('ps_finale','Finale','Epic','Verdoppelt die Belohnung (Chips) der nächsten Runde, falls gewonnen.',(owner,ai,game)=>{
+    owner.nextWinDouble = true;
+    return {msg:'Finale: nächste Gewinn-Chips verdoppelt.'};
+  });
+
+  add('ps_reprise','Reprise','Uncommon','Ziehe eine Karte, der Gegner zieht nicht.',(owner,ai,game)=>{
+    owner.hand.push(drawCardFromDeck());
+    return {msg:'Reprise: -1 Karte gezogen.'};
+  });
+
+  add('ps_rhapsody','Rhapsodie','Rare','Verstärkt deine höchste Kartenkombination (+1 RangValue für Auswertung).',(owner,ai,game)=>{
+    owner.rankBoost = (owner.rankBoost||0)+1;
+    return {msg:'Rhapsodie: Handstärke +1 für Auswertung.'};
+  });
+
+  add('ps_aria','Arie','Common','Sorge dafür, dass eine bestimmte Karte als Ass zählt (A wird hoch oder tief).',(owner,ai,game)=>{
+    owner.ariaActive = true;
+    return {msg:'Arie aktiviert: As kann besonders werten (demo-effekt).'};
+  });
+
+  add('ps_encore','Encore','Uncommon','Spiele eine zusätzliche Karte aus dem Deck und vergleiche erneut.',(owner,ai,game)=>{
+    owner.hand.push(drawCardFromDeck());
+    return {msg:'Encore: zusätzliche Karte gezogen.'};
+  });
+
+  add('ps_review','Kritikerstimme','Rare','Senkt die Multiplikatoren des Gegners geringfügig.',(owner,ai,game)=>{
+    ai.multiplier = (ai.multiplier||1) * 0.7;
+    return {msg:'Kritiker: Gegner Multipl. reduziert.'};
+  });
+
+  add('ps_standovation','Standovation','Legendary','Wenn du diese Runde gewinnst: +30 Chips.',(owner,ai,game)=>{
+    owner.standovation = true;
+    return {msg:'Standovation bereit: +30 Chips bei Sieg.'};
+  });
+
+  add('ps_mask','Maske','Common','Verbirgt eine deiner Karten (verdeckt) — Gegner kann sie nicht sehen.',(owner,ai,game)=>{
+    owner.masked = true;
+    return {msg:'Maske: eine Karte wird verborgen (UI nur simuliert).'};
+  });
+
+  add('ps_projector','Projektor','Rare','Zeigt 2 zufällige Karten des Gegners (nur Info).',(owner,ai,game)=>{
+    const sampled = ai.hand.slice(0,2).map(c=>c.rdisplay+c.suit).join(', ');
+    return {msg:`Projektor zeigt Gegnerkarten: ${sampled}`};
+  });
+
+  add('ps_curtain','Vorhang','Uncommon','Verschiebe die Reihenfolge der Karten (mische Hand).',(owner,ai,game)=>{
+    shuffle(owner.hand);
+    return {msg:'Vorhang: Hand gemischt.'};
+  });
+
+  add('ps_ovation','Ovation','Rare','Gibt sofort 15 Chips.',(owner,ai,game)=>{
+    game.chips += 15; return {msg:'Ovation: +15 Chips'};
+  });
+
+  add('ps_critic','Sarcastic Review','Common','Gibt dem Gegner eine leichte negative Karte (paar effect sim).',(owner,ai,game)=>{
+    // implement as replace one ai card with low val
+    ai.hand[Math.floor(Math.random()*ai.hand.length)] = {rdisplay:'2',suit:'♣',type:'normal'};
+    return {msg:'Sarcastic Review: Gegnerkarte abgeschwächt.'};
+  });
+
+  add('ps_signature','Signature','Epic','Einmalig: setze eine Karte auf einen gewünschten Wert (Begrenzung demo).',(owner,ai,game)=>{
+    const idx = 0;
+    owner.hand[idx] = {rdisplay:'A',suit:'♠',type:'normal'};
+    return {msg:'Signature: Eine Karte wurde zum Ass.'};
+  });
+
+  add('ps_memoir','Memoir','Common','Wenn diese Runde verloren: ziehe 2 Karten.',(owner,ai,game)=>{
+    owner.memoir = true;
+    return {msg:'Memoir aktiv: Bei Verlust 2 Karten ziehen.'};
+  });
+
+  return list;
+}
+
+// ========== Initial setup ==========
+function initGame(){
+  resetDeck();
+  // give player some jokers (sample)
+  game.jokersOwned = ALL_JOKERS.slice(0,6); // give 6 to start
+  renderJokers();
+  // initial UI
+  chipsEl.textContent = game.chips;
+  roundEl.textContent = game.round;
+  anteEl.textContent = game.ante;
+  game.player = { hand: [], bonusMult:1, rankBoost:0, nextWinDouble:false };
+  game.ai = { hand: [], multiplier:1 };
+  game.selectedJoker = null;
+  log('Bereit - drücke "Hand austeilen"');
+  drawTable();
+}
+function renderJokers(){
+  jokerList.innerHTML='';
+  for(const j of game.jokersOwned){
+    const el = document.createElement('div');
+    el.className='joker';
+    el.innerHTML = `<h3>${j.name}</h3><div class="muted small-muted">${j.rarity}</div><div style="font-size:13px;margin-top:6px">${j.desc||j.description||''}</div>`;
+    el.onclick = ()=>{ game.selectedJoker = j; highlightSelectedJoker(el); log('Joker gewählt: '+j.name); };
+    jokerList.appendChild(el);
+  }
+}
+function highlightSelectedJoker(el){
+  // simple highlight: remove others
+  [...jokerList.children].forEach(c=>c.style.boxShadow='none');
+  el.style.boxShadow='0 6px 20px rgba(197,143,184,0.4)';
+}
+function log(msg){
+  logEl.textContent = msg;
+}
+
+// ========== Round flow handling ==========
+btnDeal.onclick = ()=>{
+  // pay ante
+  if(game.chips < game.ante){ log('Nicht genügend Chips für Ante'); return; }
+  game.chips -= game.ante;
+  chipsEl.textContent = game.chips;
+  // clear hands and deal
+  game.player.hand = [];
+  game.ai.hand = [];
+  for(let i=0;i<5;i++){ game.player.hand.push(drawCardFromDeck()); game.ai.hand.push(drawCardFromDeck()); }
+  game.selectedCards.clear();
+  updateHandUI();
+  aiPlay();
+  drawTable();
+  log('Hand ausgeteilt. Wähle Karten (Tap) und bestätige.');
+};
+
+btnConfirm.onclick = ()=>{
+  // evaluate both hands, apply jokers if any selected? Player can activate Joker via PlayJoker
+  // For simplicity: evaluate and compute chips reward: base by rankValue*10
+  const playerRank = rankHand(game.player.hand);
+  const aiRank = rankHand(game.ai.hand);
+  let playerScore = playerRank.rankValue;
+  let aiScore = aiRank.rankValue;
+  // apply rankBoost
+  playerScore += (game.player.rankBoost||0);
+  // final compare
+  let win=false;
+  if(playerScore > aiScore) win=true;
+  else if(playerScore === aiScore){
+    // tie-breaker by highest card sum
+    const psum = playerRank.vals.reduce((a,b)=>a+b,0);
+    const asum = aiRank.vals.reduce((a,b)=>a+b,0);
+    win = psum >= asum;
+  }
+  let baseGain = (playerRank.rankValue+1)*10;
+  if(win){
+    // apply nextWinDouble
+    if(game.player.nextWinDouble){ baseGain *= 2; game.player.nextWinDouble=false; }
+    // apply standovation
+    if(game.player.standovation){ baseGain += 30; game.player.standovation=false; }
+    game.chips += baseGain;
+    log(`Du gewinnst die Runde! Hand: ${playerRank.rankName}. Gewinn: ${baseGain} Chips.`);
+  } else {
+    log(`Du verlierst. Deine Hand: ${playerRank.rankName}, Gegner: ${aiRank.rankName}.`);
+    // if memoir active
+    if(game.player.memoir){
+      game.player.hand.push(drawCardFromDeck());
+      game.player.hand.push(drawCardFromDeck());
+      log('Memoir zieht 2 Karten nach Niederlage.');
+    }
+  }
+  chipsEl.textContent = game.chips;
+  game.round++;
+  roundEl.textContent = game.round;
+  drawTable();
+};
+
+btnPlayJoker.onclick = ()=>{
+  if(!game.selectedJoker){ log('Wähle zuerst einen Joker.'); return; }
+  const jk = game.selectedJoker;
+  // apply to owner's perspective: we treat player as owner, ai as opponent
+  const res = jk.apply(game.player, game.ai, game);
+  log(`Joker: ${jk.name} -> ${res.msg}`);
+  // after using, remove joker from owned (consumable)
+  const idx = game.jokersOwned.findIndex(j=>j.id===jk.id);
+  if(idx>=0) game.jokersOwned.splice(idx,1);
+  game.selectedJoker = null;
+  renderJokers();
+  drawTable();
+};
+
+btnOpenJokers.onclick = ()=>{ jokerPanel.style.display='block'; };
+btnCloseJokers.onclick = ()=>{ jokerPanel.style.display='none'; };
+
+// Hand UI (DOM small cards for player)
+function updateHandUI(){
+  handContainer.innerHTML='';
+  playerHandCount.textContent = `${game.player.hand.length} Karten`;
+  aiHandCount.textContent = `${game.ai.hand.length} Karten`;
+  for(let i=0;i<game.player.hand.length;i++){
+    const c = game.player.hand[i];
+    const el = document.createElement('div');
+    el.className='card';
+    el.innerHTML = `<div class="rank">${c.rdisplay}</div><div class="suit">${c.suit}</div>`;
+    el.onclick = ()=>{
+      // toggle selection
+      if(game.selectedCards.has(i)) game.selectedCards.delete(i);
+      else game.selectedCards.add(i);
+      // visual: add border
+      el.style.boxShadow = game.selectedCards.has(i)?'0 10px 30px rgba(197,143,184,0.6)':'none';
+    };
+    handContainer.appendChild(el);
+  }
+}
+
+// ========== Helpers ==========
+function resetDeck(){
+  const d = buildStandardDeck();
+  shuffle(d);
+  game.deck = d;
+}
+function drawCardFromDeck(){
+  if(game.deck.length===0) resetDeck();
+  return game.deck.shift();
+}
+
+// ========== Start ==========
+initGame();
+resetDeck();
+drawTable();
+updateHandUI();
+
+// optional: keyboard shortcuts
+window.addEventListener('keydown', (e)=>{
+  if(e.key==='d') btnDeal.onclick();
+  if(e.key==='j') btnPlayJoker.onclick();
+  if(e.key==='Enter') btnConfirm.onclick();
+});
+
+</script>
+</body>
+</html>
